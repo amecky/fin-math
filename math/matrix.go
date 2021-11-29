@@ -1,0 +1,415 @@
+package math
+
+import (
+	"fmt"
+	"strings"
+)
+
+type SwingPointType int
+
+const (
+	High       SwingPointType = 1
+	Low        SwingPointType = -1
+	LowerHigh  SwingPointType = 2
+	HigherHigh SwingPointType = 3
+	HigherLow  SwingPointType = -2
+	LowerLow   SwingPointType = -3
+)
+
+type ClusterPoint struct {
+	Value      float64
+	Count      int
+	Timestamps []string
+	Values     []float64
+	Average    float64
+}
+
+type SwingPoint struct {
+	Timestamp string
+	BaseType  SwingPointType
+	Type      SwingPointType
+	Value     float64
+	Price     float64
+	Index     int
+}
+
+func (s SwingPointType) String() string {
+	switch s {
+	case LowerLow:
+		return "LL"
+	case HigherLow:
+		return "HL"
+	case Low:
+		return "L"
+	case 0:
+		return "-"
+	case High:
+		return "H"
+	case LowerHigh:
+		return "LH"
+	case HigherHigh:
+		return "HH"
+	}
+	return "-"
+}
+
+type SwingPoints []SwingPoint
+
+func (sps *SwingPoints) Add(timestamp string, trend SwingPointType, value, price float64) {
+	*sps = append(*sps, SwingPoint{
+		Timestamp: timestamp,
+		Type:      trend,
+		Value:     value,
+		Price:     price,
+	})
+}
+
+func (sps SwingPoints) FindByDate(timestamp string) *SwingPoint {
+	for _, s := range sps {
+		if s.Timestamp == timestamp {
+			return &s
+		}
+	}
+	return nil
+}
+
+func (sps SwingPoints) FilterByType(baseType SwingPointType) SwingPoints {
+	var ret SwingPoints
+	for _, s := range sps {
+		if s.BaseType == baseType {
+			ret = append(ret, s)
+		}
+	}
+	return ret
+}
+
+func (sps SwingPoints) FindRecentByBaseType(baseType SwingPointType) *SwingPoint {
+	idx := -1
+	for i, s := range sps {
+		if s.BaseType == baseType {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		return nil
+	} else {
+		return &sps[idx]
+	}
+}
+
+type MatrixRow struct {
+	Key    string
+	Num    int
+	Values []float64
+}
+type Matrix struct {
+	Rows     int
+	Cols     int
+	DataRows []MatrixRow
+}
+
+func NewMatrix(cols int) *Matrix {
+	return &Matrix{
+		Cols: cols,
+	}
+}
+
+func (m *Matrix) AddRow(key string) *MatrixRow {
+	r := m.FindRow(key)
+	if r == nil {
+		mr := MatrixRow{
+			Key:    key,
+			Values: make([]float64, 0),
+			Num:    m.Cols,
+		}
+		for i := 0; i < m.Cols; i++ {
+			mr.Values = append(mr.Values, 0.0)
+		}
+		m.DataRows = append(m.DataRows, mr)
+		m.Rows++
+		return &m.DataRows[m.Rows-1]
+	}
+	return r
+}
+
+func (m *Matrix) AddColumn() int {
+	m.Cols++
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Num++
+		m.DataRows[i].Values = append(m.DataRows[i].Values, 0.0)
+	}
+	return m.Cols - 1
+}
+func (m Matrix) FindRow(key string) *MatrixRow {
+	for _, r := range m.DataRows {
+		if r.Key == key {
+			return &r
+		}
+	}
+	return nil
+}
+
+func (m Matrix) Last() *MatrixRow {
+	if m.Rows > 0 {
+		return &m.DataRows[m.Rows-1]
+	}
+	return nil
+}
+
+func (m *MatrixRow) Set(index int, value float64) *MatrixRow {
+	if m != nil {
+		if index < m.Num {
+			m.Values[index] = value
+		}
+		return m
+	}
+	return nil
+}
+
+func (m *MatrixRow) Get(index int) float64 {
+	if index >= 0 && index < m.Num {
+		return m.Values[index]
+	}
+	return 0.0
+}
+
+func (m *MatrixRow) Sum() float64 {
+	sum := 0.0
+	for i := 0; i < m.Num; i++ {
+		sum += m.Values[i]
+	}
+	return sum
+}
+
+func (mr MatrixRow) String() string {
+	txt := fmt.Sprintf("Key: %s ", mr.Key)
+	for _, n := range mr.Values {
+		txt += fmt.Sprintf("%.2f ", n)
+	}
+	return txt
+}
+
+func (m *Matrix) FindMinMaxBetween(field, start, count int) (float64, float64) {
+	if m.Rows < 1 {
+		return 0.0, 0.0
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start >= m.Rows {
+		start = m.Rows - 1
+	}
+	max := m.DataRows[start].Get(field)
+	min := m.DataRows[start].Get(field)
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	for i := start + 1; i < end; i++ {
+		cur := m.DataRows[i].Get(field)
+		if cur > max {
+			max = cur
+		}
+		if cur < min {
+			min = cur
+		}
+	}
+	return min, max
+}
+
+func (m *Matrix) FindMinBetween(field, start, count int) float64 {
+	if start >= m.Rows {
+		start = m.Rows - 1
+	}
+	min := m.DataRows[start].Get(field)
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	for i := start + 1; i < end; i++ {
+		cur := m.DataRows[i].Get(field)
+		if cur < min {
+			min = cur
+		}
+	}
+	return min
+}
+
+func (m *Matrix) FindMaxBetween(field, start, count int) float64 {
+	if start >= m.Rows {
+		start = m.Rows - 1
+	}
+	max := m.DataRows[start].Get(field)
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	for i := start + 1; i < end; i++ {
+		cur := m.DataRows[i].Get(field)
+		if cur > max {
+			max = cur
+		}
+	}
+	return max
+}
+
+func (mr *Matrix) Stochastic(days int, field int) *Matrix {
+	ret := NewMatrix(1)
+	total := mr.Rows
+	if total < days {
+		return nil
+	}
+	for i := days; i < mr.Rows; i++ {
+		low, high := mr.FindMinMaxBetween(field, i-days+1, days)
+		value := (mr.DataRows[i].Get(field) - low) / (high - low) * 100.0
+		ret.AddRow(mr.DataRows[i].Key).Set(0, value)
+	}
+	return ret
+}
+
+func (m *Matrix) Add(field int, other *Matrix, otherField int) int {
+	ret := m.AddColumn()
+	for _, s := range other.DataRows {
+		row := m.FindRow(s.Key)
+		if row != nil {
+			row.Set(ret, row.Get(field)+s.Get(otherField))
+		}
+	}
+	return ret
+}
+
+func (m *Matrix) Subtract(field int, other *Matrix, otherField int) int {
+	ret := m.AddColumn()
+	for _, s := range other.DataRows {
+		row := m.FindRow(s.Key)
+		if row != nil {
+			row.Set(ret, row.Get(field)-s.Get(otherField))
+		}
+	}
+	return ret
+}
+
+func (m *Matrix) Categorize(field int, check func(mr MatrixRow) float64) int {
+	ret := m.AddColumn()
+	for i, s := range m.DataRows {
+		v := check(s)
+		m.DataRows[i].Set(ret, v)
+	}
+	return ret
+}
+
+func (m *Matrix) RemoveColumn() {
+	for j := 0; j < m.Rows; j++ {
+		m.DataRows[j].Values = m.DataRows[j].Values[:m.DataRows[j].Num-1]
+		m.DataRows[j].Num--
+	}
+	m.Cols--
+}
+
+func (m *Matrix) CopyColumn(source, destination int) {
+	for j := 0; j < m.Rows; j++ {
+		m.DataRows[j].Values[destination] = m.DataRows[j].Values[source]
+	}
+}
+func (m *Matrix) FindSwingPoints() SwingPoints {
+	return m.FindSwingPointsByField(4)
+}
+
+func (m *Matrix) FindSwingPointsByField(field int) SwingPoints {
+	var tmp SwingPoints
+	lv := 0.0
+	hv := 0.0
+	for i := 2; i < m.Rows-2; i++ {
+		p1 := m.DataRows[i-2]
+		p2 := m.DataRows[i-1]
+		pc := m.DataRows[i]
+		p3 := m.DataRows[i+1]
+		p4 := m.DataRows[i+2]
+		if p1.Get(field) < pc.Get(field) && p2.Get(field) < pc.Get(field) && p3.Get(field) < pc.Get(field) && p4.Get(field) < pc.Get(field) {
+			sp := SwingPoint{
+				Timestamp: pc.Key,
+				Type:      High,
+				Value:     pc.Get(field),
+				Price:     pc.Get(field),
+				Index:     i,
+				BaseType:  High,
+			}
+			if sp.Value > hv {
+				sp.Type = HigherHigh
+				hv = sp.Value
+			} else {
+				sp.Type = LowerHigh
+				hv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+		if p1.Get(field) > pc.Get(field) && p2.Get(field) > pc.Get(field) && p3.Get(field) > pc.Get(field) && p4.Get(field) > pc.Get(field) {
+			sp := SwingPoint{
+				Timestamp: pc.Key,
+				Type:      Low,
+				Value:     pc.Get(field),
+				Price:     pc.Get(field),
+				Index:     i,
+				BaseType:  Low,
+			}
+			if sp.Value < lv {
+				sp.Type = LowerLow
+				lv = sp.Value
+			} else {
+				sp.Type = HigherLow
+				lv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+	}
+	//sort.Slice(tmp, func(i, j int) bool {
+	//	return tmp[i].Timestamp < tmp[j].Timestamp
+	//})
+	return tmp
+}
+
+func (m *Matrix) Sublist(start, count int) *Matrix {
+	ret := NewMatrix(m.Cols)
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	for i := start; i < end; i++ {
+		ret.DataRows = append(ret.DataRows, m.DataRows[i])
+		ret.Rows++
+	}
+	return ret
+}
+
+func (m *Matrix) Recent(start int) *Matrix {
+	ret := NewMatrix(m.Cols)
+	for i := start; i < m.Rows; i++ {
+		ret.DataRows = append(ret.DataRows, m.DataRows[i])
+		ret.Rows++
+	}
+	return ret
+}
+
+func (m *Matrix) FilterByKeys(start, end string) *Matrix {
+	ret := NewMatrix(m.Cols)
+	idx := strings.Index(start, " ")
+	if idx == -1 {
+		start = start + " 00:00"
+	}
+	idx = strings.Index(end, " ")
+	if idx == -1 {
+		end = end + " 00:00"
+	}
+	for i := 0; i < m.Rows; i++ {
+		ts := m.DataRows[i].Key
+		idx := strings.Index(ts, " ")
+		if idx != -1 {
+			ts = ts[:idx] + " 00:00"
+		}
+		if ts >= start && ts <= end {
+			ret.DataRows = append(ret.DataRows, m.DataRows[i])
+			ret.Rows++
+		}
+	}
+	return ret
+}
