@@ -149,6 +149,15 @@ func (m Matrix) FindRow(key string) *MatrixRow {
 	return nil
 }
 
+func (m Matrix) FindRowIndex(key string) int {
+	for i, r := range m.DataRows {
+		if r.Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
 func (m Matrix) Last() *MatrixRow {
 	if m.Rows > 0 {
 		return &m.DataRows[m.Rows-1]

@@ -441,6 +441,11 @@ func StochasticExt(m *Matrix, days, ema, highField, lowField, priceField int) in
 	return k
 }
 
+func StochasticSMA(m *Matrix, sma, days, ema int) int {
+	smaIdx := SMA(m, sma, 4)
+	return StochasticExt(m, days, ema, smaIdx, smaIdx, smaIdx)
+}
+
 // RSS measures the relative strength index (RSI) of the spread between two SMA indicators.
 // "Readings above 70 or below 30 merely identify the potential for price to reverse and should not be taken as a trade signal.
 // When an extreme is made, you should study the lower time frame to look for a trade signal.
@@ -798,5 +803,192 @@ func VO(m *Matrix, fast, slow int) int {
 	}
 	m.RemoveColumn()
 	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  AverageVolume
+// -----------------------------------------------------------------------
+// https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/volume-oscillator
+// https://commodity.com/technical-analysis/volume-oscillator/
+func AverageVolume(m *Matrix, lookback int) int {
+	// 0 = SMA of volume
+	sma := SMA(m, lookback, 5)
+	return sma
+}
+
+// -----------------------------------------------------------------------
+//  Ichimoku
+// -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/i/ichimoku-cloud.asp
+func Ichimoku(m *Matrix, short, mid, long int) int {
+	// 0 = Conversion line 1 = Base Line 2 = Leading Span A 3 = Leading Span B 4 = Lagging Span
+	ret := m.AddColumn()
+	midIdx := m.AddColumn()
+	lsaIdx := m.AddColumn()
+	lsbIdx := m.AddColumn()
+	lsIdx := m.AddColumn()
+	for i := short; i < m.Rows; i++ {
+		low := m.FindMinBetween(2, i-short, short)
+		high := m.FindMaxBetween(1, i-short, short)
+		m.DataRows[i].Set(ret, (high+low)/2.0)
+	}
+	for i := mid; i < m.Rows; i++ {
+		low := m.FindMinBetween(2, i-mid, mid)
+		high := m.FindMaxBetween(1, i-mid, mid)
+		m.DataRows[i].Set(midIdx, (high+low)/2.0)
+	}
+	for i := mid; i < m.Rows; i++ {
+		m.DataRows[i].Set(lsaIdx, (m.DataRows[i].Get(ret)+m.DataRows[i].Get(midIdx))/2.0)
+	}
+	for i := long; i < m.Rows; i++ {
+		low := m.FindMinBetween(2, i-long, long)
+		high := m.FindMaxBetween(1, i-long, long)
+		m.DataRows[i].Set(lsbIdx, (high+low)/2.0)
+	}
+	for i := mid; i < m.Rows; i++ {
+		m.DataRows[i].Set(lsIdx, m.DataRows[i-mid].Get(4))
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  Weighted Trend Intensity
+// -----------------------------------------------------------------------
+// something like this: https://medium.com/geekculture/the-psychological-line-indicator-coding-back-testing-in-python-cf5210d9e079
+func WeightedTrendIntensity(m *Matrix, period int) int {
+	ret := m.AddColumn()
+	n := float64(period)
+	for i := period; i < m.Rows; i++ {
+		sum := 0.0
+		for j := 0; j < period; j++ {
+			if m.DataRows[i-j].Get(4) > m.DataRows[i-j].Get(0) {
+				sum += float64(period - j + 1)
+			}
+		}
+		avg := sum / (n * (n + 1.0) / 2.0) * 100.0
+		m.DataRows[i].Set(ret, avg)
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  Supertrend
+// -----------------------------------------------------------------------
+// https://kaabar-sofien.medium.com/one-of-the-best-trend-following-strategies-893f903230e7
+
+/*
+//@version=5
+indicator("Pine Supertrend")
+
+[supertrend, direction] = ta.supertrend(3, 10)
+plot(direction < 0 ? supertrend : na, "Up direction", color = color.green, style=plot.style_linebr)
+plot(direction < 0? na : supertrend, "Down direction", color = color.red, style=plot.style_linebr)
+
+// The same on Pine
+pine_supertrend(factor, atrPeriod) =>
+	src = hl2
+	atr = ta.atr(atrPeriod)
+	upperBand = src + factor * atr
+	lowerBand = src - factor * atr
+	prevLowerBand = nz(lowerBand[1])
+	prevUpperBand = nz(upperBand[1])
+
+
+
+
+	[superTrend, direction]
+
+*/
+func Supertrend(m *Matrix, period int, multiplier float64) int {
+	ret := m.AddColumn()
+	atrIdx := ATR(m, period)
+	buIdx := m.AddColumn()
+	blIdx := m.AddColumn()
+	bfuIdx := m.AddColumn()
+	bflIdx := m.AddColumn()
+	/*
+		src = hl2
+		atr = ta.atr(atrPeriod)
+		upperBand = src + factor * atr
+		lowerBand = src - factor * atr
+		prevLowerBand = nz(lowerBand[1])
+		prevUpperBand = nz(upperBand[1])
+	*/
+	for i := 0; i < m.Rows; i++ {
+		cp := m.DataRows[i]
+		m.DataRows[i].Set(buIdx, (cp.Get(1)+cp.Get(2))/2.0+multiplier*cp.Get(atrIdx))
+		m.DataRows[i].Set(blIdx, (cp.Get(1)+cp.Get(2))/2.0-multiplier*cp.Get(atrIdx))
+	}
+
+	//lowerBand := lowerBand > prevLowerBand or close[1] < prevLowerBand ? lowerBand : prevLowerBand
+	//upperBand := upperBand < prevUpperBand or close[1] > prevUpperBand ? upperBand : prevUpperBand
+	for i := 1; i < m.Rows; i++ {
+		cp := m.DataRows[i]
+		pp := m.DataRows[i-1]
+
+		if cp.Get(buIdx) < pp.Get(buIdx) || pp.Get(4) > pp.Get(buIdx) {
+			m.DataRows[i].Set(bfuIdx, cp.Get(buIdx))
+		} else {
+			m.DataRows[i].Set(bfuIdx, pp.Get(bfuIdx))
+		}
+
+		if cp.Get(blIdx) > pp.Get(blIdx) || pp.Get(4) < pp.Get(blIdx) {
+			m.DataRows[i].Set(bflIdx, cp.Get(blIdx))
+		} else {
+			m.DataRows[i].Set(bflIdx, pp.Get(bflIdx))
+		}
+
+	}
+	/*
+	   int direction = na
+	   	float superTrend = na
+	   	prevSuperTrend = superTrend[1]
+	   	if na(atr[1])
+	   		direction := 1
+	   	else if prevSuperTrend == prevUpperBand
+	   		direction := close > upperBand ? -1 : 1
+	   	else
+	   		direction := close < lowerBand ? 1 : -1
+	   	superTrend := direction == -1 ? lowerBand : upperBand
+	*/
+	for i := 1; i < m.Rows; i++ {
+		cp := m.DataRows[i]
+		pp := m.DataRows[i-1]
+
+		dir := 0.0
+
+		if pp.Get(ret) == pp.Get(bfuIdx) {
+			if cp.Get(4) > cp.Get(bfuIdx) {
+				dir = 1.0
+			} else {
+				dir = -1.0
+			}
+		} else {
+			if cp.Get(4) < cp.Get(bflIdx) {
+				dir = 1.0
+			} else {
+				dir = -1.0
+			}
+		}
+
+		if dir == 1.0 {
+			m.DataRows[i].Set(ret, cp.Get(bfuIdx))
+		} else {
+			m.DataRows[i].Set(ret, cp.Get(bflIdx))
+		}
+	}
+	return ret
+}
+
+func GAP(m *Matrix) int {
+	ret := m.AddColumn()
+	atrIdx := ATR(m, 14)
+	for i := 15; i < m.Rows; i++ {
+		cp := m.DataRows[i]
+		prev := m.DataRows[i-1]
+		value := (cp.Get(0) - prev.Get(4)) / cp.Get(atrIdx) * 100.0
+		m.DataRows[i].Set(ret, value)
+	}
 	return ret
 }
