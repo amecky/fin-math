@@ -2,6 +2,7 @@ package math
 
 import (
 	"fmt"
+	ma "math"
 	"strings"
 )
 
@@ -165,6 +166,21 @@ func (m Matrix) Last() *MatrixRow {
 	return nil
 }
 
+func (m *Matrix) PartialSum(field, start, count int) float64 {
+	sum := 0.0
+	if start >= m.Rows {
+		return 0.0
+	}
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	for i := start; i < end; i++ {
+		sum += m.DataRows[i].Values[field]
+	}
+	return sum
+}
+
 func (m *MatrixRow) Set(index int, value float64) *MatrixRow {
 	if m != nil {
 		if index < m.Num {
@@ -185,6 +201,21 @@ func (m *MatrixRow) Get(index int) float64 {
 func (m *MatrixRow) Sum() float64 {
 	sum := 0.0
 	for i := 0; i < m.Num; i++ {
+		sum += m.Values[i]
+	}
+	return sum
+}
+
+func (m *MatrixRow) PartialSum(start, count int) float64 {
+	sum := 0.0
+	if start >= m.Num {
+		return 0.0
+	}
+	end := start + count
+	if end > m.Num {
+		end = m.Num
+	}
+	for i := start; i < end; i++ {
 		sum += m.Values[i]
 	}
 	return sum
@@ -226,6 +257,27 @@ func (m *Matrix) FindMinMaxBetween(field, start, count int) (float64, float64) {
 	return min, max
 }
 
+func (m *Matrix) FindHighLowIndex(start, count int) (int, int) {
+	end := start + count
+	low := 100000.0
+	high := 0.0
+	hIdx := start
+	lIdx := start
+	for i := start; i < end; i++ {
+		h := m.DataRows[i].Get(1)
+		if h >= high {
+			hIdx = i
+			high = h
+		}
+		l := m.DataRows[i].Get(2)
+		if l <= low {
+			lIdx = i
+			low = l
+		}
+	}
+	return lIdx, hIdx
+}
+
 func (m *Matrix) FindMinBetween(field, start, count int) float64 {
 	if start >= m.Rows {
 		start = m.Rows - 1
@@ -262,16 +314,16 @@ func (m *Matrix) FindMaxBetween(field, start, count int) float64 {
 	return max
 }
 
-func (mr *Matrix) Stochastic(days int, field int) *Matrix {
-	ret := NewMatrix(1)
-	total := mr.Rows
-	if total < days {
-		return nil
-	}
-	for i := days; i < mr.Rows; i++ {
-		low, high := mr.FindMinMaxBetween(field, i-days+1, days)
-		value := (mr.DataRows[i].Get(field) - low) / (high - low) * 100.0
-		ret.AddRow(mr.DataRows[i].Key).Set(0, value)
+func (m *Matrix) Stochastic(days int, field int) int {
+	ret := m.AddColumn()
+	total := m.Rows
+	if total > days {
+
+		for i := days; i < m.Rows; i++ {
+			low, high := m.FindMinMaxBetween(field, i-days+1, days)
+			value := (m.DataRows[i].Get(field) - low) / (high - low) * 100.0
+			m.DataRows[i].Set(ret, value)
+		}
 	}
 	return ret
 }
@@ -287,13 +339,10 @@ func (m *Matrix) Add(field int, other *Matrix, otherField int) int {
 	return ret
 }
 
-func (m *Matrix) Subtract(field int, other *Matrix, otherField int) int {
+func (m *Matrix) Subtract(field, otherField int) int {
 	ret := m.AddColumn()
-	for _, s := range other.DataRows {
-		row := m.FindRow(s.Key)
-		if row != nil {
-			row.Set(ret, row.Get(field)-s.Get(otherField))
-		}
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, m.DataRows[i].Get(field)-m.DataRows[i].Get(otherField))
 	}
 	return ret
 }
@@ -420,5 +469,22 @@ func (m *Matrix) FilterByKeys(start, end string) *Matrix {
 			ret.Rows++
 		}
 	}
+	return ret
+}
+
+func (m *Matrix) StdDev(field, period int) int {
+	ret := m.AddColumn()
+	avg := SMA(m, period, field)
+	for j := period; j < m.Rows; j++ {
+		sum := 0.0
+		cavg := m.DataRows[j].Get(avg)
+		for i := 0; i < period; i++ {
+			idx := j - i
+			d := m.DataRows[idx].Get(field) - cavg
+			sum += d * d
+		}
+		m.DataRows[j].Set(ret, ma.Sqrt(sum/float64(period)))
+	}
+	m.RemoveColumn()
 	return ret
 }
