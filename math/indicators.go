@@ -329,13 +329,27 @@ func RSI(m *Matrix, days, field int) int {
 	ue := RMA(m, days, up)
 	de := RMA(m, days, down)
 	for i := 1; i < m.Rows; i++ {
-		rs := m.DataRows[i].Get(ue) / m.DataRows[i].Get(de)
-		m.DataRows[i].Set(ret, (100.0 - 100.0/(1.0+rs)))
+		if m.DataRows[i].Get(de) != 0.0 {
+			rs := m.DataRows[i].Get(ue) / m.DataRows[i].Get(de)
+			m.DataRows[i].Set(ret, (100.0 - 100.0/(1.0+rs)))
+		}
 	}
 	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
 	return ret
+}
+
+// -----------------------------------------------------------------------
+//  RSI
+// -----------------------------------------------------------------------
+func RSI_BB(m *Matrix, days, field int) int {
+	// 0 = RSI 1 = Upper 2 = Lower 3 = Mid
+	ri := RSI(m, days, 4)
+	BollingerBandExt(m, ri, days, 2.0, 2.0)
+	return ri
 }
 
 // -----------------------------------------------------------------------
@@ -637,6 +651,27 @@ func BollingerBand(m *Matrix, ema int, upper, lower float64) int {
 // -----------------------------------------------------------------------
 // BollingerBand
 // -----------------------------------------------------------------------
+func BollingerBandExt(m *Matrix, field, ema int, upper, lower float64) int {
+	// 0 = Upper 1 = Lower 2 = Mid
+	upIdx := m.AddColumn()
+	lowIdx := m.AddColumn()
+	midIdx := m.AddColumn()
+	sma := SMA(m, ema, field)
+	std := m.StdDev(field, ema)
+	for i := 0; i < m.Rows; i++ {
+		sa := m.DataRows[i].Get(std)
+		m.DataRows[i].Set(upIdx, m.DataRows[i].Get(sma)+sa*upper)
+		m.DataRows[i].Set(lowIdx, m.DataRows[i].Get(sma)-sa*lower)
+		m.DataRows[i].Set(midIdx, m.DataRows[i].Get(sma))
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return upIdx
+}
+
+// -----------------------------------------------------------------------
+// BollingerBand
+// -----------------------------------------------------------------------
 func BollingerBandSqueeze(m *Matrix, ema int, upper, lower float64, period int) int {
 	ret := m.AddColumn()
 	bb := BollingerBandWidth(m, ema, upper, lower)
@@ -696,12 +731,21 @@ func Keltner(m *Matrix, ema, atr int) int {
 	// 0 = Upper 1 = Lower 2 = Mid
 	upIdx := m.AddColumn()
 	lowIdx := m.AddColumn()
-	ed := EMA(m, ema, 4)
+	midIdx := m.AddColumn()
+	tp := m.AddColumn()
+	for i := 0; i < m.Rows; i++ {
+		cur := m.DataRows[i]
+		m.DataRows[i].Set(tp, (cur.Get(1)+cur.Get(2)+cur.Get(4))/3.0)
+	}
+	ed := EMA(m, ema, tp)
 	ad := ATR(m, atr)
 	for i := 0; i < m.Rows; i++ {
 		m.DataRows[i].Set(upIdx, m.DataRows[i].Get(ed)+2.0*m.DataRows[i].Get(ad))
 		m.DataRows[i].Set(lowIdx, m.DataRows[i].Get(ed)-2.0*m.DataRows[i].Get(ad))
+		m.DataRows[i].Set(midIdx, m.DataRows[i].Get(ed))
 	}
+	m.RemoveColumn()
+	m.RemoveColumn()
 	m.RemoveColumn()
 	return upIdx
 }
@@ -1206,7 +1250,7 @@ func BullishBearish(m *Matrix, period int) int {
 // -----------------------------------------------------------------------
 //  OBV
 // -----------------------------------------------------------------------
-func OBV(m *Matrix) int {
+func OBV(m *Matrix, scale float64) int {
 	// 0 = OBV
 	ret := m.AddColumn()
 	if m.Rows > 2 {
@@ -1222,7 +1266,7 @@ func OBV(m *Matrix) int {
 					sign = -1.0
 				}
 				obv += p.Get(5) * sign
-				m.DataRows[i].Set(ret, obv)
+				m.DataRows[i].Set(ret, obv/scale)
 			}
 			prev = p
 		}
@@ -1677,6 +1721,87 @@ func CCI(m *Matrix, days int) int {
 			m.DataRows[i].Set(ret, current)
 		}
 	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// VWAP
+// -----------------------------------------------------------------------
+func VWAP(m *Matrix, days int, std float64) int {
+	// 0 = VWAP 1 = Upper 2 = Lower
+	ret := m.AddColumn()
+	upper := m.AddColumn()
+	lower := m.AddColumn()
+	hlc := m.AddColumn()
+	for i := 0; i < m.Rows; i++ {
+		p := m.DataRows[i]
+		m.DataRows[i].Set(hlc, (p.Get(1)+p.Get(2)+p.Get(4))/3.0*p.Get(5))
+	}
+	for i := days; i < m.Rows; i++ {
+		sumTP := 0.0
+		sumV := 0.0
+		for j := 0; j < days; j++ {
+			sumTP += m.DataRows[j+i-days].Get(hlc)
+			sumV += m.DataRows[j+i-days].Get(5)
+		}
+		vw := sumTP / sumV
+		m.DataRows[i].Set(ret, vw)
+	}
+	si := m.StdDev(ret, days)
+	for i := days; i < m.Rows; i++ {
+		m.DataRows[i].Set(upper, m.DataRows[i].Get(ret)+std*m.DataRows[i].Get(si))
+		m.DataRows[i].Set(lower, m.DataRows[i].Get(ret)-std*m.DataRows[i].Get(si))
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+/*
+study("Derivative Oscillator", shorttitle="DOSC")
+
+rsiLength = input(title="RSI Length", type=input.integer, defval=14)
+ema1Length = input(title="1st EMA Smoothing Length", type=input.integer, defval=5)
+ema2Length = input(title="2nd EMA Smoothing Length", type=input.integer, defval=3)
+smaLength = input(title="3rd SMA Smoothing Length", type=input.integer, defval=9)
+signalLength = input(title="Signal Length", type=input.integer, defval=9)
+src = input(title="Source", type=input.source, defval=close)
+
+smoothedRSI = ema(ema(rsi(src, rsiLength), ema1Length), ema2Length)
+dosc = smoothedRSI - sma(smoothedRSI, smaLength)
+signal = sma(dosc, signalLength)
+
+doscColor = dosc >= 0 ? dosc[1] < dosc ? #26A69A : #B2DFDB : dosc[1] < dosc ? #FFCDD2 : #EF5350
+plot(dosc, title="DOSC", style=plot.style_columns, linewidth=2, color=doscColor, transp=0)
+plot(signal, title="Signal", linewidth=2, color=color.black, transp=0)
+*/
+// -----------------------------------------------------------------------
+// DOSC
+// -----------------------------------------------------------------------
+// https://www.daytrading.com/derivative-oscillator
+// Defaults: 14,5,3,9,9
+func DOSC(m *Matrix, r, e1, e2, s, sl int) int {
+	// 0 = DOSC 1 = Signal
+	ret := m.AddColumn()
+	si := m.AddColumn()
+	ri := RSI(m, r, 4)
+	ei1 := EMA(m, e1, ri)
+	ei2 := EMA(m, e2, ei1)
+	smi := SMA(m, s, ei2)
+	start := e1 + e2 + s
+	for i := start; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, m.DataRows[i].Get(ei2)-m.DataRows[i].Get(smi))
+	}
+	si2 := SMA(m, sl, ret)
+	start += sl
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(si, m.DataRows[i].Get(si2))
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()

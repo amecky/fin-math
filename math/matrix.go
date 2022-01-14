@@ -198,6 +198,14 @@ func (m *MatrixRow) Get(index int) float64 {
 	return 0.0
 }
 
+func (m *MatrixRow) ShortKey() string {
+	idx := strings.Index(m.Key, " ")
+	if idx != -1 {
+		return m.Key[0:idx]
+	}
+	return m.Key
+}
+
 func (m *MatrixRow) Sum() float64 {
 	sum := 0.0
 	for i := 0; i < m.Num; i++ {
