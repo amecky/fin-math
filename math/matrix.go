@@ -2,9 +2,47 @@ package math
 
 import (
 	"fmt"
+	m "math"
 	ma "math"
 	"strings"
 )
+
+type MajorLevel struct {
+	Value float64
+	Count int
+	Date  string
+	Index int
+}
+
+type MajorLevels struct {
+	Levels    []MajorLevel
+	Threshold float64
+}
+
+func NewMajorLevels(threshold float64) *MajorLevels {
+	ret := MajorLevels{
+		Threshold: threshold,
+	}
+	ret.Levels = make([]MajorLevel, 0)
+	return &ret
+}
+
+func (ml *MajorLevels) Add(value float64, count int, date string) {
+	cnt := 0
+	for _, cm := range ml.Levels {
+		d := (cm.Value/value - 1.0) * 100.0
+		if cnt == 0 && m.Abs(d) < ml.Threshold {
+			cnt = 1
+		}
+	}
+	if cnt == 0 {
+		ml.Levels = append(ml.Levels, MajorLevel{
+			Value: value,
+			Count: count,
+			Date:  date,
+		})
+	}
+}
 
 type SwingPointType int
 
@@ -96,6 +134,13 @@ func (sps SwingPoints) FindRecentByBaseType(baseType SwingPointType) *SwingPoint
 	} else {
 		return &sps[idx]
 	}
+}
+
+func (sps SwingPoints) GetAngle(first, second int) float64 {
+	steps := float64(sps[second].Index - sps[first].Index)
+	y1 := sps[first].Value
+	y2 := sps[second].Value
+	return (y2 - y1) / steps //m.Atan((y2-y1)/steps) * 180.0 / m.Pi
 }
 
 type MatrixRow struct {
@@ -286,6 +331,26 @@ func (m *Matrix) FindHighLowIndex(start, count int) (int, int) {
 	return lIdx, hIdx
 }
 
+func (m *Matrix) FindHighestHighLowestLow(start, count int) (float64, float64) {
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	low := m.DataRows[start].Get(2)
+	high := m.DataRows[start].Get(1)
+	for i := start; i < end; i++ {
+		h := m.DataRows[i].Get(1)
+		if h >= high {
+			high = h
+		}
+		l := m.DataRows[i].Get(2)
+		if l <= low {
+			low = l
+		}
+	}
+	return high, low
+}
+
 func (m *Matrix) FindMinBetween(field, start, count int) float64 {
 	if start >= m.Rows {
 		start = m.Rows - 1
@@ -378,7 +443,56 @@ func (m *Matrix) CopyColumn(source, destination int) {
 	}
 }
 func (m *Matrix) FindSwingPoints() SwingPoints {
-	return m.FindSwingPointsByField(4)
+	var tmp SwingPoints
+	lv := 0.0
+	hv := 0.0
+	for i := 2; i < m.Rows-2; i++ {
+		p1 := m.DataRows[i-2]
+		p2 := m.DataRows[i-1]
+		pc := m.DataRows[i]
+		p3 := m.DataRows[i+1]
+		p4 := m.DataRows[i+2]
+		if p1.Get(1) < pc.Get(1) && p2.Get(1) < pc.Get(1) && p3.Get(1) < pc.Get(1) && p4.Get(1) < pc.Get(1) {
+			sp := SwingPoint{
+				Timestamp: pc.Key,
+				Type:      High,
+				Value:     pc.Get(1),
+				Price:     pc.Get(4),
+				Index:     i,
+				BaseType:  High,
+			}
+			if sp.Value > hv {
+				sp.Type = HigherHigh
+				hv = sp.Value
+			} else {
+				sp.Type = LowerHigh
+				hv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+		if p1.Get(2) > pc.Get(2) && p2.Get(2) > pc.Get(2) && p3.Get(2) > pc.Get(2) && p4.Get(2) > pc.Get(2) {
+			sp := SwingPoint{
+				Timestamp: pc.Key,
+				Type:      Low,
+				Value:     pc.Get(2),
+				Price:     pc.Get(4),
+				Index:     i,
+				BaseType:  Low,
+			}
+			if sp.Value < lv {
+				sp.Type = LowerLow
+				lv = sp.Value
+			} else {
+				sp.Type = HigherLow
+				lv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+	}
+	//sort.Slice(tmp, func(i, j int) bool {
+	//	return tmp[i].Timestamp < tmp[j].Timestamp
+	//})
+	return tmp
 }
 
 func (m *Matrix) FindSwingPointsByField(field int) SwingPoints {
@@ -396,7 +510,7 @@ func (m *Matrix) FindSwingPointsByField(field int) SwingPoints {
 				Timestamp: pc.Key,
 				Type:      High,
 				Value:     pc.Get(field),
-				Price:     pc.Get(field),
+				Price:     pc.Get(4),
 				Index:     i,
 				BaseType:  High,
 			}
@@ -414,7 +528,7 @@ func (m *Matrix) FindSwingPointsByField(field int) SwingPoints {
 				Timestamp: pc.Key,
 				Type:      Low,
 				Value:     pc.Get(field),
-				Price:     pc.Get(field),
+				Price:     pc.Get(4),
 				Index:     i,
 				BaseType:  Low,
 			}
@@ -495,4 +609,30 @@ func (m *Matrix) StdDev(field, period int) int {
 	}
 	m.RemoveColumn()
 	return ret
+}
+
+func FindMax(values []float64) float64 {
+	if len(values) == 1 {
+		return values[0]
+	}
+	max := values[0]
+	for i := 1; i < len(values); i++ {
+		if values[i] > max {
+			max = values[i]
+		}
+	}
+	return max
+}
+
+func FindMin(values []float64) float64 {
+	if len(values) == 1 {
+		return values[0]
+	}
+	min := values[0]
+	for i := 1; i < len(values); i++ {
+		if values[i] < min {
+			min = values[i]
+		}
+	}
+	return min
 }
