@@ -149,6 +149,7 @@ type MatrixRow struct {
 	Values []float64
 }
 type Matrix struct {
+	Info     string
 	Rows     int
 	Cols     int
 	DataRows []MatrixRow
@@ -328,7 +329,7 @@ func (m *Matrix) FindHighLowIndex(start, count int) (int, int) {
 			low = l
 		}
 	}
-	return lIdx, hIdx
+	return hIdx, lIdx
 }
 
 func (m *Matrix) FindHighestHighLowestLow(start, count int) (float64, float64) {

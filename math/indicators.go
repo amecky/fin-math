@@ -55,6 +55,13 @@ func CategorizeNormalizeRange(v, min, max float64) (float64, int) {
 	return d, ret
 }
 
+func ChangePercentage(first, second float64) float64 {
+	if second != 0.0 {
+		return (first/second - 1.0) * 100.0
+	}
+	return 0.0
+}
+
 // -----------------------------------------------------------------------
 // SMA - Simple moving average
 // -----------------------------------------------------------------------
@@ -1232,7 +1239,7 @@ func Supertrend(m *Matrix, period int, multiplier float64) int {
 	return ret
 }
 
-func GAP(m *Matrix) int {
+func GAP_ATR(m *Matrix) int {
 	ret := m.AddColumn()
 	atrIdx := ATR(m, 14)
 	for i := 15; i < m.Rows; i++ {
@@ -1243,6 +1250,22 @@ func GAP(m *Matrix) int {
 	}
 	m.RemoveColumn()
 	m.RemoveColumn()
+	return ret
+}
+
+func GAP(m *Matrix) int {
+	// 0 = GAP % 1 = Open 2 = Close
+	ret := m.AddColumn()
+	oi := m.AddColumn()
+	ci := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		cp := m.DataRows[i]
+		prev := m.DataRows[i-1]
+		value := (cp.Get(0)/prev.Get(4) - 1.0) * 100.0
+		m.DataRows[i].Set(ret, value)
+		m.DataRows[i].Set(oi, cp.Get(0))
+		m.DataRows[i].Set(ci, prev.Get(4))
+	}
 	return ret
 }
 
@@ -1444,6 +1467,7 @@ func AD(m *Matrix) int {
 // -----------------------------------------------------------------------
 //  TSI
 // -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/t/tsi.asp
 func TSI(m *Matrix, short, long, signal int) int {
 	// 0 = TSI 1 = Signal 2 = Diff
 	ret := m.AddColumn()
@@ -1463,11 +1487,15 @@ func TSI(m *Matrix, short, long, signal int) int {
 	for i := 0; i < m.Rows; i++ {
 		m.DataRows[i].Set(ami, math.Abs(m.DataRows[i].Get(mi)))
 	}
+
 	apcs := EMA(m, long, ami)
 	apcds := EMA(m, short, apcs)
 
 	for i := 0; i < m.Rows; i++ {
-		tsi := 100.0 * (m.DataRows[i].Get(pcds) / m.DataRows[i].Get(apcds))
+		tsi := 0.0
+		if m.DataRows[i].Get(apcds) != 0.0 {
+			tsi = 100.0 * (m.DataRows[i].Get(pcds) / m.DataRows[i].Get(apcds))
+		}
 		m.DataRows[i].Set(ret, tsi)
 	}
 
@@ -1477,7 +1505,6 @@ func TSI(m *Matrix, short, long, signal int) int {
 		m.DataRows[i].Set(si, m.DataRows[i].Get(tsiEMA))
 		m.DataRows[i].Set(di, m.DataRows[i].Get(ret)-m.DataRows[i].Get(tsiEMA))
 	}
-	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
@@ -2072,6 +2099,22 @@ func FindMajorLevels(prices *Matrix, threshold float64) *MajorLevels {
 	return levels
 }
 
+func FindMajorGaps(prices *Matrix, threshold float64) *MajorLevels {
+	levels := NewMajorLevels(threshold)
+	gi := GAP(prices)
+	for i := 0; i < prices.Rows; i++ {
+		cp := prices.DataRows[i]
+		if cp.Get(gi) > threshold || cp.Get(gi) < -threshold {
+			levels.Add(cp.Get(gi+1), 1, cp.Key)
+			levels.Add(cp.Get(gi+2), 1, cp.Key)
+		}
+	}
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	return levels
+}
+
 func FindInsideBarMajorLevels(prices *Matrix, threshold float64) *MajorLevels {
 	levels := NewMajorLevels(1.0)
 	for i := prices.Rows - 2; i >= 0; i-- {
@@ -2100,6 +2143,38 @@ func FindInsideBarMajorLevels(prices *Matrix, threshold float64) *MajorLevels {
 			levels.Add(m, cnt, cur.Key)
 			i -= cnt + 1
 		}
+	}
+	return levels
+}
+
+func FindFibonacciLevels(prices *Matrix, lookback int) *MajorLevels {
+	sp := prices.FindSwingPoints()
+	levels := NewMajorLevels(0.0)
+	hsl := sp.FilterByType(High)
+	hi := len(hsl) - 1
+	for i, p := range hsl {
+		if p.Type == HigherHigh {
+			hi = i
+		}
+	}
+	lsl := sp.FilterByType(Low)
+	li := len(lsl) - 1
+	for i, p := range hsl {
+		if p.Type == LowerLow {
+			li = i
+		}
+	}
+	if hi >= 0 && li >= 0 {
+		cur := prices.Last().Key
+		hs := hsl[hi]
+		ls := lsl[li]
+		pp := (hs.Value + ls.Value) / 2.0
+		levels.Add(pp, 1, cur)
+		diff := hs.Value - ls.Value
+		levels.Add(pp+diff*0.382, 1, cur)
+		levels.Add(pp+diff*0.618, 1, cur)
+		levels.Add(pp-diff*0.382, 1, cur)
+		levels.Add(pp-diff*0.618, 1, cur)
 	}
 	return levels
 }
@@ -2145,4 +2220,112 @@ func Slope(prices *Matrix, days, lookback int) int {
 	}
 	prices.RemoveColumn()
 	return ret
+}
+
+func Spread(prices *Matrix, lookback int) int {
+	// 0 = Spread
+	ret := prices.AddColumn()
+	for i := 0; i < prices.Rows; i++ {
+		cur := prices.DataRows[i]
+		prices.DataRows[i].Set(ret, cur.Get(1)-cur.Get(2))
+	}
+	st := StochasticExt(prices, lookback, 3, ret, ret, ret)
+	for i := 0; i < prices.Rows; i++ {
+		cur := prices.DataRows[i]
+		prices.DataRows[i].Set(ret, cur.Get(st))
+	}
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  Guppy GMMA
+// -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/g/guppy-multiple-moving-average.asp
+func GMMA(prices *Matrix) int {
+	// 0 = GMMA 1 = Signal
+	ret := prices.AddColumn()
+	fe := make([]int, 0)
+	fast := []int{3, 5, 8, 10, 12, 15}
+	for _, f := range fast {
+		fe = append(fe, EMA(prices, f, 4))
+	}
+	fa := prices.AddColumn()
+	for i := 0; i < prices.Rows; i++ {
+		sum := 0.0
+		for j := 0; j < len(fe); j++ {
+			sum += prices.DataRows[i].Get(fe[j])
+		}
+		prices.DataRows[i].Set(fa, sum)
+	}
+
+	se := make([]int, 0)
+	slow := []int{30, 35, 40, 45, 50, 60}
+	for _, f := range slow {
+		se = append(se, EMA(prices, f, 4))
+	}
+	sa := prices.AddColumn()
+	for i := 0; i < prices.Rows; i++ {
+		sum := 0.0
+		for j := 0; j < len(se); j++ {
+			sum += prices.DataRows[i].Get(se[j])
+		}
+		prices.DataRows[i].Set(sa, sum)
+	}
+
+	for i := 0; i < prices.Rows; i++ {
+		if prices.DataRows[i].Get(sa) != 0.0 {
+			d := (prices.DataRows[i].Get(fa) - prices.DataRows[i].Get(sa)) / prices.DataRows[i].Get(sa) * 100.0
+			prices.DataRows[i].Set(ret, d)
+		}
+	}
+	for i := 0; i < 14; i++ {
+		prices.RemoveColumn()
+	}
+	EMA(prices, 13, ret)
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  Volatility
+// -----------------------------------------------------------------------
+func Volatility(m *Matrix, lookback, field int) int {
+	// 0 = Volatility
+	ret := m.AddColumn()
+	for i := lookback; i < m.Rows; i++ {
+		s := standardAbbreviation(m, m.DataRows[i].Get(field), i-lookback, lookback)
+		m.DataRows[i].Set(ret, s)
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  z-Score
+// -----------------------------------------------------------------------
+// https://kaabar-sofien.medium.com/using-z-score-in-trading-a-python-study-5f4b21b41aa0
+func ZScore(m *Matrix, lookback, field int) int {
+	// 0 = Z-Score
+	ret := m.AddColumn()
+	sma := SMA(m, lookback, field)
+	std := m.StdDev(field, lookback)
+	for i := lookback; i < m.Rows; i++ {
+		if m.DataRows[i].Get(std) != 0.0 {
+			s := (m.DataRows[i].Get(field) - m.DataRows[i].Get(sma)) / m.DataRows[i].Get(std)
+			m.DataRows[i].Set(ret, s)
+		}
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  z-Normalization Bollinger Bands
+// -----------------------------------------------------------------------
+// https://medium.com/superalgos/normalization-of-oscillating-indicators-to-create-dynamic-overbought-and-oversold-levels-338d4ef72914
+func ZNormalizationBollinger(m *Matrix, period, lookback, field int) int {
+	// 0 = Upper 1 = Lower 2 = Mid
+	zi := ZScore(m, period, field)
+	return BollingerBandExt(m, zi, lookback, 2.0, 2.0)
 }
