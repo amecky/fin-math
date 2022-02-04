@@ -81,6 +81,18 @@ func SMA(m *Matrix, days, field int) int {
 }
 
 // -----------------------------------------------------------------------
+// SWMA - Simple weighted moving average (P1 + 2*P2 + 2*P3 + P4) / 6
+// -----------------------------------------------------------------------
+func SWMA(m *Matrix, field int) int {
+	ret := m.AddColumn()
+	for i := 3; i < m.Rows; i++ {
+		sum := (m.DataRows[i-3].Get(field) + 2.0*m.DataRows[i-2].Get(field) + 2.0*m.DataRows[i-1].Get(field) + m.DataRows[i].Get(field)) / 6.0
+		m.DataRows[i].Set(ret, sum)
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
 // EMA
 // -----------------------------------------------------------------------
 func EMA(m *Matrix, days, field int) int {
@@ -552,6 +564,7 @@ func StochasticExt(m *Matrix, days, ema, highField, lowField, priceField int) in
 		m.DataRows[i].Set(k, m.DataRows[i].Get(slowData))
 		m.DataRows[i].Set(d, m.DataRows[i].Get(dData))
 	}
+	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
 	return k
@@ -1661,28 +1674,37 @@ func ADX(m *Matrix, lookback int) int {
 // -----------------------------------------------------------------------
 // https://www.forextraders.com/forex-education/forex-indicators/relative-vigor-index-indicator-explained/
 func RVI(m *Matrix, lookback, signal int) int {
+	// 0 = RVI 1 = Signal
 	li := m.AddColumn()
 	si := m.AddColumn()
-	ti := m.AddColumn()
-	for i := 0; i < m.Rows; i++ {
-		t := 0.0
-		hl := m.DataRows[i].Get(1) - m.DataRows[i].Get(2)
-		if hl != 0.0 {
-			t = (m.DataRows[i].Get(4) - m.DataRows[i].Get(0)) / hl
+	co := m.Subtract(4, 0)
+	num := SWMA(m, co)
+	hl := m.Subtract(1, 2)
+	dem := SWMA(m, hl)
+	sn := m.Sum(num, lookback)
+	dn := m.Sum(dem, lookback)
+	for i := lookback; i < m.Rows; i++ {
+		if m.DataRows[i].Get(dn) != 0.0 {
+			m.DataRows[i].Set(li, m.DataRows[i].Get(sn)/m.DataRows[i].Get(dn))
 		}
-		m.DataRows[i].Set(ti, t)
 	}
-	smaLine := SMA(m, lookback, ti)
-	for i := 0; i < m.Rows; i++ {
-		m.DataRows[i].Set(li, m.DataRows[i].Get(smaLine))
-	}
-	emaLine := WMA(m, signal, smaLine)
-	for i := 0; i < m.Rows; i++ {
-		m.DataRows[i].Set(si, m.DataRows[i].Get(emaLine))
+	for i := 3; i < m.Rows; i++ {
+		d := (m.DataRows[i].Get(li) + 2.0*m.DataRows[i-1].Get(li) + 2.0*m.DataRows[i-2].Get(li) + m.DataRows[i-3].Get(li)) / 6.0
+		m.DataRows[i].Set(si, d)
 	}
 	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return li
+}
+
+func RVIStochastic(m *Matrix, lookback, signal int) int {
+	// 0 = RVI 1 = Signal 2 = RVI K 3 = RVI D
+	li := RVI(m, lookback, signal)
+	StochasticExt(m, 14, 3, li, li, li)
 	return li
 }
 
@@ -2329,3 +2351,148 @@ func ZNormalizationBollinger(m *Matrix, period, lookback, field int) int {
 	zi := ZScore(m, period, field)
 	return BollingerBandExt(m, zi, lookback, 2.0, 2.0)
 }
+
+// -----------------------------------------------------------------------
+// Smoothed candles - using SMA on every entry
+// -----------------------------------------------------------------------
+// https://kaabar-sofien.medium.com/chart-pattern-recognition-in-python-fda5c7efe7bf
+func SmoothedCandles(m *Matrix, lookback int) int {
+	// 0 = Open 1 = High 2 = Low 3 = Close 4 = AdjClose 5 = Volume
+	oi := SMA(m, lookback, 0)
+	for i := 1; i < 6; i++ {
+		SMA(m, lookback, i)
+	}
+	return oi
+}
+
+// -----------------------------------------------------------------------
+// Triple EMA Categorization
+// -----------------------------------------------------------------------
+func TripleEMA(m *Matrix, l1, l2, l3 int) int {
+	// 0 = Normalized Value
+	ret := m.AddColumn()
+	e1 := EMA(m, l1, 4)
+	e2 := EMA(m, l2, 4)
+	e3 := EMA(m, l3, 4)
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		p := m.DataRows[i-1]
+		sum := 0.0
+		if p.Get(e1) < c.Get(e1) {
+			sum += 1.0
+		} else {
+			sum -= 1.0
+		}
+		if p.Get(e2) < c.Get(e2) {
+			sum += 1.0
+		} else {
+			sum -= 1.0
+		}
+		if p.Get(e3) < c.Get(e3) {
+			sum += 1.0
+		} else {
+			sum -= 1.0
+		}
+
+		if c.Get(e1) > c.Get(e2) {
+			sum += 1.0
+		} else {
+			sum -= 1.0
+		}
+		if c.Get(e2) > c.Get(e3) {
+			sum += 1.0
+		} else {
+			sum -= 1.0
+		}
+		m.DataRows[i].Set(ret, sum/5.0)
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// TRIX
+// -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/t/trix.asp
+func TRIX(prices *Matrix, lookback int) int {
+	// 0 = TRIX 1 = Signal
+	ret := prices.AddColumn()
+	li := prices.AddColumn()
+	for i := 0; i < prices.Rows; i++ {
+		c := prices.DataRows[i]
+		prices.DataRows[i].Set(li, m.Log(c.Get(4)))
+	}
+	e1 := EMA(prices, lookback, li)
+	e2 := EMA(prices, lookback, e1)
+	e3 := EMA(prices, lookback, e2)
+	for i := 1; i < prices.Rows; i++ {
+		c := prices.DataRows[i]
+		p := prices.DataRows[i-1]
+		if p.Get(e3) != 0.0 {
+			d := (c.Get(e3) - p.Get(e3)) / p.Get(e3) * 10000.0
+			prices.DataRows[i].Set(ret, d)
+		}
+	}
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	EMA(prices, 9, ret)
+	return ret
+}
+
+/*
+//@version=4
+//Basic Hull Ma Pack tinkered by InSilico
+study("Hull Suite by InSilico", overlay=true)
+
+//INPUT
+src = input(close, title="Source")
+modeSwitch = input("Hma", title="Hull Variation", options=["Hma", "Thma", "Ehma"])
+length = input(55, title="Length(180-200 for floating S/R , 55 for swing entry)")
+lengthMult = input(1.0, title="Length multiplier (Used to view higher timeframes with straight band)")
+
+useHtf = input(false, title="Show Hull MA from X timeframe? (good for scalping)")
+htf = input("240", title="Higher timeframe", type=input.resolution)
+
+switchColor = input(true, "Color Hull according to trend?")
+candleCol = input(false,title="Color candles based on Hull's Trend?")
+visualSwitch  = input(true, title="Show as a Band?")
+thicknesSwitch = input(1, title="Line Thickness")
+transpSwitch = input(40, title="Band Transparency",step=5)
+
+//FUNCTIONS
+//HMA
+HMA(_src, _length) =>  wma(2 * wma(_src, _length / 2) - wma(_src, _length), round(sqrt(_length)))
+//EHMA
+EHMA(_src, _length) =>  ema(2 * ema(_src, _length / 2) - ema(_src, _length), round(sqrt(_length)))
+//THMA
+THMA(_src, _length) =>  wma(wma(_src,_length / 3) * 3 - wma(_src, _length / 2) - wma(_src, _length), _length)
+
+//SWITCH
+Mode(modeSwitch, src, len) =>
+      modeSwitch == "Hma"  ? HMA(src, len) :
+      modeSwitch == "Ehma" ? EHMA(src, len) :
+      modeSwitch == "Thma" ? THMA(src, len/2) : na
+
+//OUT
+_hull = Mode(modeSwitch, src, int(length * lengthMult))
+HULL = useHtf ? security(syminfo.ticker, htf, _hull) : _hull
+MHULL = HULL[0]
+SHULL = HULL[2]
+
+//COLOR
+hullColor = switchColor ? (HULL > HULL[2] ? #00ff00 : #ff0000) : #ff9800
+
+//PLOT
+///< Frame
+Fi1 = plot(MHULL, title="MHULL", color=hullColor, linewidth=thicknesSwitch, transp=50)
+Fi2 = plot(visualSwitch ? SHULL : na, title="SHULL", color=hullColor, linewidth=thicknesSwitch, transp=50)
+alertcondition(crossover(MHULL, SHULL), title="Hull trending up.", message="Hull trending up.")
+alertcondition(crossover(SHULL, MHULL), title="Hull trending down.", message="Hull trending down.")
+///< Ending Filler
+fill(Fi1, Fi2, title="Band Filler", color=hullColor, transp=transpSwitch)
+///BARCOLOR
+barcolor(color = candleCol ? (switchColor ? hullColor : na) : na)
+*/

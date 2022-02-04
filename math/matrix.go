@@ -421,6 +421,18 @@ func (m *Matrix) Subtract(field, otherField int) int {
 	return ret
 }
 
+func (m *Matrix) Sum(field, length int) int {
+	ret := m.AddColumn()
+	for i := length; i < m.Rows; i++ {
+		s := 0.0
+		for j := 0; j < length; j++ {
+			s += m.DataRows[i-j].Get(field)
+		}
+		m.DataRows[i].Set(ret, s)
+	}
+	return ret
+}
+
 func (m *Matrix) Categorize(field int, check func(mr MatrixRow) float64) int {
 	ret := m.AddColumn()
 	for i, s := range m.DataRows {
