@@ -823,7 +823,7 @@ func KEnvelope(m *Matrix, days int) int {
 // KeltnerChannel
 // -----------------------------------------------------------------------
 // https://www.investopedia.com/terms/k/keltnerchannel.asp
-func Keltner(m *Matrix, ema, atr int) int {
+func Keltner(m *Matrix, ema, atrLength int, multiplier float64) int {
 	// 0 = Upper 1 = Lower 2 = Mid
 	upIdx := m.AddColumn()
 	lowIdx := m.AddColumn()
@@ -834,10 +834,10 @@ func Keltner(m *Matrix, ema, atr int) int {
 		m.DataRows[i].Set(tp, (cur.Get(1)+cur.Get(2)+cur.Get(4))/3.0)
 	}
 	ed := EMA(m, ema, tp)
-	ad := ATR(m, atr)
+	ad := ATR(m, atrLength)
 	for i := 0; i < m.Rows; i++ {
-		m.DataRows[i].Set(upIdx, m.DataRows[i].Get(ed)+2.0*m.DataRows[i].Get(ad))
-		m.DataRows[i].Set(lowIdx, m.DataRows[i].Get(ed)-2.0*m.DataRows[i].Get(ad))
+		m.DataRows[i].Set(upIdx, m.DataRows[i].Get(ed)+multiplier*m.DataRows[i].Get(ad))
+		m.DataRows[i].Set(lowIdx, m.DataRows[i].Get(ed)-multiplier*m.DataRows[i].Get(ad))
 		m.DataRows[i].Set(midIdx, m.DataRows[i].Get(ed))
 	}
 	m.RemoveColumn()
@@ -2496,3 +2496,69 @@ fill(Fi1, Fi2, title="Band Filler", color=hullColor, transp=transpSwitch)
 ///BARCOLOR
 barcolor(color = candleCol ? (switchColor ? hullColor : na) : na)
 */
+
+/*
+length = input(20, title="BB Length")
+mult = input(2.0,title="BB MultFactor")
+lengthKC=input(20, title="KC Length")
+multKC = input(1.5, title="KC MultFactor")
+
+useTrueRange = input(true, title="Use TrueRange (KC)", type=bool)
+
+// Calculate BB
+source = close
+basis = sma(source, length)
+dev = multKC * stdev(source, length)
+upperBB = basis + dev
+lowerBB = basis - dev
+
+// Calculate KC
+ma = sma(source, lengthKC)
+range = useTrueRange ? tr : (high - low)
+rangema = sma(range, lengthKC)
+upperKC = ma + rangema * multKC
+lowerKC = ma - rangema * multKC
+
+sqzOn  = (lowerBB > lowerKC) and (upperBB < upperKC)
+sqzOff = (lowerBB < lowerKC) and (upperBB > upperKC)
+noSqz  = (sqzOn == false) and (sqzOff == false)
+
+val = linreg(source  -  avg(avg(highest(high, lengthKC), lowest(low, lengthKC)),sma(close,lengthKC)),
+            lengthKC,0)
+
+bcolor = iff( val > 0,
+            iff( val > nz(val[1]), lime, green),
+            iff( val < nz(val[1]), red, maroon))
+scolor = noSqz ? blue : sqzOn ? black : gray
+plot(val, color=bcolor, style=histogram, linewidth=4)
+plot(0, color=scolor, style=cross, linewidth=2)
+
+*/
+// -----------------------------------------------------------------------
+// Squeeze Momentum
+// -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/t/trix.asp
+// https://medium.com/geekculture/implementing-the-most-popular-indicator-on-tradingview-using-python-239d579412ab
+func SqueezeMomentum(prices *Matrix, lookback int) int {
+	// 0 = State
+	ret := prices.AddColumn()
+	bb := BollingerBand(prices, lookback, 2.0, 2.0)
+	kc := Keltner(prices, 20, 10, 1.5)
+	for i := 0; i < prices.Rows; i++ {
+		c := prices.DataRows[i]
+		if c.Get(bb+1) > c.Get(kc+1) && c.Get(bb) < c.Get(kc) {
+			prices.DataRows[i].Set(ret, 1.0)
+		}
+		if c.Get(bb+1) < c.Get(kc+1) && c.Get(bb) > c.Get(kc) {
+			prices.DataRows[i].Set(ret, -1.0)
+		}
+
+	}
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	prices.RemoveColumn()
+	return ret
+}
