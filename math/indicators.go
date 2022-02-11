@@ -189,7 +189,7 @@ func Disparity(prices *Matrix, days int) int {
 	// 0 = Disparity
 	ret := prices.AddColumn()
 	// DI 14 = [ C.PRICE - MOVING  AVG 14 ] / [ MOVING AVG 14 ] * 100
-	sma := SMA(prices, days, 4)
+	sma := EMA(prices, days, 4)
 	for _, p := range prices.DataRows {
 		p.Set(ret, (p.Get(4)-p.Get(sma))/p.Get(sma)*100.0)
 	}
@@ -1325,6 +1325,15 @@ func STD(prices *Matrix, days int) int {
 }
 
 // -----------------------------------------------------------------------
+//  STD
+// -----------------------------------------------------------------------
+func STDStochastic(prices *Matrix, days int) int {
+	// 0 = K 1 = D
+	s := prices.StdDev(4, days)
+	return StochasticExt(prices, days, 3, s, s, s)
+}
+
+// -----------------------------------------------------------------------
 // DeMark
 // -----------------------------------------------------------------------
 func DeMark(m *Matrix) int {
@@ -1564,6 +1573,13 @@ func HighLowChannel(m *Matrix, highPeriod, lowPeriod int) int {
 	return hs
 }
 
+func HighLowEMAChannel(m *Matrix, highPeriod, lowPeriod int) int {
+	// 0 = High 1 = Low
+	hs := EMA(m, highPeriod, 1)
+	EMA(m, lowPeriod, 2)
+	return hs
+}
+
 // -----------------------------------------------------------------------
 //  ADX
 // -----------------------------------------------------------------------
@@ -1672,7 +1688,7 @@ func ADX(m *Matrix, lookback int) int {
 // -----------------------------------------------------------------------
 // RVI Relative Vigor index
 // -----------------------------------------------------------------------
-// https://www.forextraders.com/forex-education/forex-indicators/relative-vigor-index-indicator-explained/
+// https://www.investopedia.com/terms/r/relative_vigor_index.asp
 func RVI(m *Matrix, lookback, signal int) int {
 	// 0 = RVI 1 = Signal
 	li := m.AddColumn()
@@ -2537,13 +2553,13 @@ plot(0, color=scolor, style=cross, linewidth=2)
 // -----------------------------------------------------------------------
 // Squeeze Momentum
 // -----------------------------------------------------------------------
-// https://www.investopedia.com/terms/t/trix.asp
 // https://medium.com/geekculture/implementing-the-most-popular-indicator-on-tradingview-using-python-239d579412ab
 func SqueezeMomentum(prices *Matrix, lookback int) int {
-	// 0 = State
+	// 0 = State 1 = Line
 	ret := prices.AddColumn()
+	li := prices.AddColumn()
 	bb := BollingerBand(prices, lookback, 2.0, 2.0)
-	kc := Keltner(prices, 20, 10, 1.5)
+	kc := Keltner(prices, lookback, lookback, 1.5)
 	for i := 0; i < prices.Rows; i++ {
 		c := prices.DataRows[i]
 		if c.Get(bb+1) > c.Get(kc+1) && c.Get(bb) < c.Get(kc) {
@@ -2554,11 +2570,49 @@ func SqueezeMomentum(prices *Matrix, lookback int) int {
 		}
 
 	}
-	prices.RemoveColumn()
-	prices.RemoveColumn()
-	prices.RemoveColumn()
-	prices.RemoveColumn()
-	prices.RemoveColumn()
-	prices.RemoveColumn()
+	/*
+		Step 3: Calculate the highest high in the last 20 periods.
+		Step 4: Calculate the lowest low in the last 20 periods.
+		Step 5: Find the mean between the two above results.
+		Step 6: Calculate a 20-period simple moving average on the closing price
+		Step 7: Calculate the delta between the closing price and the mean between the result from step 5 and 6.
+	*/
+	di := prices.AddColumn()
+	for i := lookback; i < prices.Rows; i++ {
+		h, l := prices.FindHighLowIndex(i-lookback, lookback)
+		d := (prices.DataRows[h].Get(4) + prices.DataRows[l].Get(4)) / 2.0
+		prices.DataRows[i].Set(di, d)
+
+	}
+
+	si := SMA(prices, lookback, 4)
+	for i := lookback; i < prices.Rows; i++ {
+		d := prices.DataRows[i].Get(4) - (prices.DataRows[i].Get(di)+prices.DataRows[i].Get(si))/2.0
+		prices.DataRows[i].Set(li, d)
+
+	}
+
+	/*
+		prices.RemoveColumn()
+		prices.RemoveColumn()
+		prices.RemoveColumn()
+		prices.RemoveColumn()
+		prices.RemoveColumn()
+		prices.RemoveColumn()
+		prices.RemoveColumn()
+		prices.RemoveColumn()
+	*/
 	return ret
 }
+
+/*
+//@version=2
+study("SMA slope", overlay=false)
+rad2degree=180/3.14159265359  //pi
+iSMA = input(defval=50,title="Period SMA",type=integer)
+iBarsBack=input(defval=10,title="Bars Back",type=integer)
+hline(0)
+sma2sample=sma(close,iSMA)
+slopeD=rad2degree*atan((sma2sample[0]-nz(sma2sample[iBarsBack]))/iBarsBack)
+plot(slopeD,color=black)
+*/

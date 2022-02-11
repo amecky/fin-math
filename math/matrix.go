@@ -433,6 +433,19 @@ func (m *Matrix) Sum(field, length int) int {
 	return ret
 }
 
+func (m *Matrix) SlopePercentage(field, lookback int) int {
+	ret := m.AddColumn()
+	for i := lookback; i < m.Rows; i++ {
+		cur := m.DataRows[i].Get(field)
+		prev := m.DataRows[i-lookback].Get(field)
+		if prev != 0.0 {
+			s := (cur/prev - 1.0) * 100.0
+			m.DataRows[i].Set(ret, s)
+		}
+	}
+	return ret
+}
+
 func (m *Matrix) Categorize(field int, check func(mr MatrixRow) float64) int {
 	ret := m.AddColumn()
 	for i, s := range m.DataRows {
