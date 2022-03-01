@@ -94,6 +94,32 @@ func CalculateTrendChannel(prices *Matrix) int {
 	return ui
 }
 
+func CalculateTrendLine(prices *Matrix) int {
+	// 0 = Line
+	li := prices.AddColumn()
+	points := prices.FindSwingPoints()
+	hc := len(points)
+	if hc > 1 {
+		for i := 1; i < hc; i++ {
+			ch := points[i]
+			ph := points[i-1]
+			m := points.GetAngle(i-1, i)
+			for j := ph.Index; j < ch.Index; j++ {
+				s := j - ph.Index
+				prices.DataRows[j].Set(li, ph.Value+float64(s)*m)
+			}
+		}
+		start := points[hc-2].Index
+		h1 := points[hc-2]
+		m := points.GetAngle(hc-2, hc-1)
+		for i := start; i < prices.Rows; i++ {
+			s := i - start
+			prices.DataRows[i].Set(li, h1.Value+float64(s)*m)
+		}
+	}
+	return li
+}
+
 /*
 type MarketCycle struct {
 	Start string

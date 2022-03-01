@@ -7,6 +7,15 @@ import (
 	"strings"
 )
 
+const (
+	OPEN      int = 0
+	HIGH      int = 1
+	LOW       int = 2
+	CLOSE     int = 3
+	ADJ_CLOSE int = 4
+	VOLUME    int = 5
+)
+
 type MajorLevel struct {
 	Value float64
 	Count int
@@ -463,6 +472,12 @@ func (m *Matrix) RemoveColumn() {
 	m.Cols--
 }
 
+func (m *Matrix) RemoveColumns(cnt int) {
+	for i := 0; i < cnt; i++ {
+		m.RemoveColumn()
+	}
+}
+
 func (m *Matrix) CopyColumn(source, destination int) {
 	for j := 0; j < m.Rows; j++ {
 		m.DataRows[j].Values[destination] = m.DataRows[j].Values[source]
@@ -515,9 +530,6 @@ func (m *Matrix) FindSwingPoints() SwingPoints {
 			tmp = append(tmp, sp)
 		}
 	}
-	//sort.Slice(tmp, func(i, j int) bool {
-	//	return tmp[i].Timestamp < tmp[j].Timestamp
-	//})
 	return tmp
 }
 
@@ -568,9 +580,6 @@ func (m *Matrix) FindSwingPointsByField(field int) SwingPoints {
 			tmp = append(tmp, sp)
 		}
 	}
-	//sort.Slice(tmp, func(i, j int) bool {
-	//	return tmp[i].Timestamp < tmp[j].Timestamp
-	//})
 	return tmp
 }
 
@@ -661,4 +670,42 @@ func FindMin(values []float64) float64 {
 		}
 	}
 	return min
+}
+
+func (m *Matrix) ChangePercentage(first, second, field int) float64 {
+	return (m.DataRows[first].Get(field)/m.DataRows[second].Get(field) - 1.0) * 100.0
+}
+
+func (m *Matrix) FibonacciLevels(index int) *MajorLevels {
+	// top bottom: 0 (Low) 23.6%, 38.2%, 50%, 61.8%, and 78.6%. 100 (High)
+	levels := NewMajorLevels(0.0)
+	cur := m.DataRows[index]
+	hs := cur.Get(HIGH)
+	ls := cur.Get(LOW)
+	diff := hs - ls
+	levels.Add(hs, 1, cur.Key)
+	levels.Add(hs-diff*0.236, 1, cur.Key)
+	levels.Add(hs-diff*0.382, 1, cur.Key)
+	levels.Add(hs-diff*0.5, 1, cur.Key)
+	levels.Add(hs-diff*0.618, 1, cur.Key)
+	levels.Add(hs-diff*0.786, 1, cur.Key)
+	levels.Add(ls, 1, cur.Key)
+	return levels
+}
+
+func (m *Matrix) InverseFibonacciLevels(index int) *MajorLevels {
+	// bottom to top: 0 (Low) 23.6%, 38.2%, 50%, 61.8%, and 78.6%. 100 (High)
+	levels := NewMajorLevels(0.0)
+	cur := m.DataRows[index]
+	hs := cur.Get(HIGH)
+	ls := cur.Get(LOW)
+	diff := hs - ls
+	levels.Add(ls, 1, cur.Key)
+	levels.Add(ls+diff*0.236, 1, cur.Key)
+	levels.Add(ls+diff*0.382, 1, cur.Key)
+	levels.Add(ls+diff*0.5, 1, cur.Key)
+	levels.Add(ls+diff*0.618, 1, cur.Key)
+	levels.Add(ls+diff*0.786, 1, cur.Key)
+	levels.Add(hs, 1, cur.Key)
+	return levels
 }
