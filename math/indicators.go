@@ -204,6 +204,7 @@ func TEMA(m *Matrix, days, field int) int {
 // -----------------------------------------------------------------------
 // DEMA is calculated as 2*EMA - (EMA(EMA))
 // -----------------------------------------------------------------------
+// https://www.youtube.com/watch?v=HE6XDux4Ig4
 func DEMA(m *Matrix, days, field int) int {
 	ret := m.AddColumn()
 	ema1 := EMA(m, days, field)
@@ -2818,5 +2819,17 @@ func PriceMovingAverageDistance(prices *Matrix, f MAFunc, length int) int {
 		prices.DataRows[i].Set(per, ChangePercentage(prices.DataRows[i].Get(ADJ_CLOSE), prices.DataRows[i].Get(si)))
 	}
 	prices.RemoveColumn()
+	return ret
+}
+
+func RS(prices *Matrix, index *Matrix) int {
+	// 0 = Strength
+	ret := prices.AddColumn()
+	for i := 0; i < prices.Rows; i++ {
+		row := index.FindRow(prices.DataRows[i].Key)
+		if row != nil && row.Get(ADJ_CLOSE) != 0.0 {
+			prices.DataRows[i].Set(ret, prices.DataRows[i].Get(ADJ_CLOSE)/row.Get(ADJ_CLOSE)*1000.0)
+		}
+	}
 	return ret
 }
