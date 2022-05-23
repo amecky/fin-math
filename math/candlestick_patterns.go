@@ -229,6 +229,6 @@ func FindCandleStickPatterns(prices *Matrix) int {
 		}
 
 	}
-	prices.RemoveColumns(10)
+	prices.RemoveColumns(11)
 	return ret
 }

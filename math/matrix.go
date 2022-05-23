@@ -153,21 +153,40 @@ func (sps SwingPoints) GetAngle(first, second int) float64 {
 }
 
 type MatrixRow struct {
-	Key    string
-	Num    int
-	Values []float64
+	Key     string
+	Num     int
+	Values  []float64
+	Comment string
 }
 type Matrix struct {
 	Info     string
 	Rows     int
 	Cols     int
 	DataRows []MatrixRow
+	Headers  []string
 }
 
 func NewMatrix(cols int) *Matrix {
-	return &Matrix{
-		Cols: cols,
+	m := Matrix{
+		Cols:    cols,
+		Headers: []string{"Key"},
 	}
+	for i := 1; i < cols; i++ {
+		m.Headers = append(m.Headers, "")
+	}
+	return &m
+}
+
+func NewMatrixWithHeaders(cols int, headers []string) *Matrix {
+	m := Matrix{
+		Cols:    0,
+		Headers: []string{"Key"},
+	}
+	for _, h := range headers {
+		m.Headers = append(m.Headers, h)
+		m.Cols++
+	}
+	return &m
 }
 
 func (m *Matrix) AddRow(key string) *MatrixRow {
@@ -188,14 +207,26 @@ func (m *Matrix) AddRow(key string) *MatrixRow {
 	return r
 }
 
-func (m *Matrix) AddColumn() int {
+func (m *Matrix) AddNamedColumn(header string) int {
 	m.Cols++
+	m.Headers = append(m.Headers, header)
 	for i := 0; i < m.Rows; i++ {
 		m.DataRows[i].Num++
 		m.DataRows[i].Values = append(m.DataRows[i].Values, 0.0)
 	}
 	return m.Cols - 1
 }
+
+func (m *Matrix) AddColumn() int {
+	m.Cols++
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Num++
+		m.DataRows[i].Values = append(m.DataRows[i].Values, 0.0)
+	}
+	m.Headers = append(m.Headers, "")
+	return m.Cols - 1
+}
+
 func (m Matrix) FindRow(key string) *MatrixRow {
 	for _, r := range m.DataRows {
 		if r.Key == key {
@@ -236,6 +267,15 @@ func (m *Matrix) PartialSum(field, start, count int) float64 {
 	return sum
 }
 
+func (m *Matrix) String() string {
+	var builder strings.Builder
+	for _, d := range m.DataRows {
+		builder.WriteString(d.String())
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
 func (m *MatrixRow) Set(index int, value float64) *MatrixRow {
 	if m != nil {
 		if index < m.Num {
@@ -244,6 +284,20 @@ func (m *MatrixRow) Set(index int, value float64) *MatrixRow {
 		return m
 	}
 	return nil
+}
+
+func (m *MatrixRow) SetComment(cmt string) *MatrixRow {
+	if m != nil {
+		m.Comment = cmt
+		return m
+	}
+	return nil
+}
+
+func (m *Matrix) SetComment(row int, cmt string) {
+	if m.Rows > row {
+		m.DataRows[row].Comment = cmt
+	}
 }
 
 func (m *MatrixRow) Get(index int) float64 {
@@ -285,11 +339,47 @@ func (m *MatrixRow) PartialSum(start, count int) float64 {
 }
 
 func (mr MatrixRow) String() string {
-	txt := fmt.Sprintf("Key: %s ", mr.Key)
+	var builder strings.Builder
+	builder.WriteString("Key: ")
+	builder.WriteString(mr.Key)
 	for _, n := range mr.Values {
-		txt += fmt.Sprintf("%.2f ", n)
+		builder.WriteString(fmt.Sprintf("%.2f ", n))
 	}
-	return txt
+	builder.WriteString("C: ")
+	builder.WriteString(mr.Comment)
+	return builder.String()
+}
+
+func (m *Matrix) FindMinMaxIndexBetween(field, start, count int) (int, int) {
+	if m.Rows < 1 {
+		return -1, -1
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start >= m.Rows {
+		start = m.Rows - 1
+	}
+	rma := 0
+	rmi := 0
+	max := m.DataRows[start].Get(field)
+	min := m.DataRows[start].Get(field)
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	for i := start + 1; i < end; i++ {
+		cur := m.DataRows[i].Get(field)
+		if cur > max {
+			max = cur
+			rma = i
+		}
+		if cur < min {
+			min = cur
+			rmi = i
+		}
+	}
+	return rmi, rma
 }
 
 func (m *Matrix) FindMinMaxBetween(field, start, count int) (float64, float64) {
@@ -342,6 +432,12 @@ func (m *Matrix) FindHighLowIndex(start, count int) (int, int) {
 }
 
 func (m *Matrix) FindHighestHighLowestLow(start, count int) (float64, float64) {
+	if m.Rows == 0 {
+		return 0.0, 0.0
+	}
+	if start < 0 {
+		start = 0
+	}
 	end := start + count
 	if end > m.Rows {
 		end = m.Rows
@@ -455,13 +551,34 @@ func (m *Matrix) SlopePercentage(field, lookback int) int {
 	return ret
 }
 
-func (m *Matrix) Categorize(field int, check func(mr MatrixRow) float64) int {
-	ret := m.AddColumn()
+func (m *Matrix) Categorize(field, target int, check func(mr MatrixRow) float64) {
 	for i, s := range m.DataRows {
 		v := check(s)
+		m.DataRows[i].Set(target, v)
+	}
+}
+
+func (m *Matrix) Categorize2(target int, check func(mr MatrixRow) float64) {
+	for i, s := range m.DataRows {
+		v := check(s)
+		m.DataRows[i].Set(target, v)
+	}
+}
+
+func (m *Matrix) Apply(fn func(mr MatrixRow) float64) int {
+	ret := m.AddColumn()
+	for i, s := range m.DataRows {
+		v := fn(s)
 		m.DataRows[i].Set(ret, v)
 	}
 	return ret
+}
+
+func (m *Matrix) ApplyRow(row int, fn func(mr MatrixRow) float64) {
+	for i, s := range m.DataRows {
+		v := fn(s)
+		m.DataRows[i].Set(row, v)
+	}
 }
 
 func (m *Matrix) RemoveColumn() {
@@ -469,6 +586,7 @@ func (m *Matrix) RemoveColumn() {
 		m.DataRows[j].Values = m.DataRows[j].Values[:m.DataRows[j].Num-1]
 		m.DataRows[j].Num--
 	}
+	m.Headers = m.Headers[:len(m.Headers)-1]
 	m.Cols--
 }
 
@@ -517,6 +635,54 @@ func (m *Matrix) FindSwingPoints() SwingPoints {
 				Type:      Low,
 				Value:     pc.Get(2),
 				Price:     pc.Get(4),
+				Index:     i,
+				BaseType:  Low,
+			}
+			if sp.Value < lv {
+				sp.Type = LowerLow
+				lv = sp.Value
+			} else {
+				sp.Type = HigherLow
+				lv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+	}
+	return tmp
+}
+
+func (m *Matrix) FindTurningPoints(field int) SwingPoints {
+	var tmp SwingPoints
+	lv := 0.0
+	hv := 0.0
+	for i := 1; i < m.Rows-1; i++ {
+		p := m.DataRows[i-1]
+		c := m.DataRows[i]
+		n := m.DataRows[i+1]
+		if p.Get(field) < c.Get(field) && n.Get(field) < c.Get(field) {
+			sp := SwingPoint{
+				Timestamp: c.Key,
+				Type:      High,
+				Value:     c.Get(1),
+				Price:     c.Get(4),
+				Index:     i,
+				BaseType:  High,
+			}
+			if sp.Value > hv {
+				sp.Type = HigherHigh
+				hv = sp.Value
+			} else {
+				sp.Type = LowerHigh
+				hv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+		if p.Get(field) > c.Get(field) && n.Get(field) > c.Get(field) {
+			sp := SwingPoint{
+				Timestamp: c.Key,
+				Type:      Low,
+				Value:     c.Get(2),
+				Price:     c.Get(4),
 				Index:     i,
 				BaseType:  Low,
 			}
@@ -708,4 +874,27 @@ func (m *Matrix) InverseFibonacciLevels(index int) *MajorLevels {
 	levels.Add(ls+diff*0.786, 1, cur.Key)
 	levels.Add(hs, 1, cur.Key)
 	return levels
+}
+
+func (ma *Matrix) FindSupportResistance(lookback int, threshold float64) []float64 {
+	sp := ma.FindSwingPoints()
+	var points = make([]float64, 0, lookback)
+	s := len(sp) - lookback
+	if s < 0 {
+		s = 0
+	}
+	for i := s; i < len(sp); i++ {
+		d := 1
+		for _, p := range points {
+			cp := m.Abs(ChangePercentage(sp[i].Value, p))
+			if cp < 5.0 {
+				d = 0
+			}
+		}
+
+		if d != 0 {
+			points = append(points, sp[i].Value)
+		}
+	}
+	return points
 }
