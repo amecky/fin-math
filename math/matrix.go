@@ -551,6 +551,20 @@ func (m *Matrix) SlopePercentage(field, lookback int) int {
 	return ret
 }
 
+func (m *Matrix) Sample(field int, steps []float64) int {
+	ret := m.AddColumn()
+	for i := 0; i < m.Rows; i++ {
+		for j, s := range steps {
+			m.DataRows[i].Set(ret, float64(len(steps)+1))
+			if m.DataRows[i].Get(field) <= s {
+				m.DataRows[i].Set(ret, float64(j)+1.0)
+				break
+			}
+		}
+	}
+	return ret
+}
+
 func (m *Matrix) Categorize(field, target int, check func(mr MatrixRow) float64) {
 	for i, s := range m.DataRows {
 		v := check(s)

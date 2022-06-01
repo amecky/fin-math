@@ -236,6 +236,32 @@ func DEMA(m *Matrix, days, field int) int {
 	return ret
 }
 
+func ZLEMA(m *Matrix, days, field int) int {
+	ret := m.AddColumn()
+	lag := (days - 1) / 2
+	d := m.AddColumn()
+	for i := lag; i < m.Rows; i++ {
+		m.DataRows[i].Set(d, 2.0*m.DataRows[i].Get(field)-m.DataRows[i-lag].Get(field))
+	}
+	ei := EMA(m, days, d)
+	m.CopyColumn(ei, ret)
+	m.RemoveColumns(2)
+	return ret
+}
+
+func ZLSMA(m *Matrix, days, field int) int {
+	ret := m.AddColumn()
+	lag := (days - 1) / 2
+	d := m.AddColumn()
+	for i := lag; i < m.Rows; i++ {
+		m.DataRows[i].Set(d, 2.0*m.DataRows[i].Get(field)-m.DataRows[i-lag].Get(field))
+	}
+	ei := SMA(m, days, d)
+	m.CopyColumn(ei, ret)
+	m.RemoveColumns(2)
+	return ret
+}
+
 func MASlope(prices *Matrix, operator MAFunc, days, lookback int) int {
 	// 0 = MA Slope
 	ret := prices.AddNamedColumn(fmt.Sprintf("MAS%d", days))
@@ -333,6 +359,32 @@ func MACD(m *Matrix, short, long, signal int) int {
 
 	f := EMA(m, short, 4)
 	s := EMA(m, long, 4)
+
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, m.DataRows[i].Get(f)-m.DataRows[i].Get(s))
+	}
+	signalPairs := EMA(m, signal, ret)
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(sig, m.DataRows[i].Get(signalPairs))
+		m.DataRows[i].Set(diff, m.DataRows[i].Get(ret)-m.DataRows[i].Get(signalPairs))
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// MACD
+// -----------------------------------------------------------------------
+func MACDZL(m *Matrix, short, long, signal int) int {
+	// 0 = Line 1 = Signal 2 = Diff
+	ret := m.AddColumn()
+	sig := m.AddColumn()
+	diff := m.AddColumn()
+
+	f := ZLEMA(m, short, 4)
+	s := ZLEMA(m, long, 4)
 
 	for i := 0; i < m.Rows; i++ {
 		m.DataRows[i].Set(ret, m.DataRows[i].Get(f)-m.DataRows[i].Get(s))
@@ -3255,4 +3307,131 @@ func VPT(prices *Matrix) int {
 		c.Set(ret, p.Get(ret)+c.Get(VOLUME)*(c.Get(ADJ_CLOSE)-p.Get(ADJ_CLOSE))/p.Get(ADJ_CLOSE))
 	}
 	return ret
+}
+
+func ParabolicSAR(prices *Matrix) int {
+	// 0 = PSAR 1 = Trend
+	const (
+		psarAfStep = 0.02
+		psarAfMax  = 0.20
+	)
+
+	psar := prices.AddNamedColumn("PSAR")
+	trend := prices.AddNamedColumn("Trend")
+
+	var af, ep float64
+
+	prices.DataRows[0].Set(trend, -1.0)
+	prices.DataRows[0].Set(psar, prices.DataRows[0].Get(HIGH))
+	af = psarAfStep
+	ep = prices.DataRows[0].Get(LOW)
+
+	for i := 1; i < prices.Rows; i++ {
+		c := &prices.DataRows[i]
+		p := prices.DataRows[i-1]
+		c.Set(psar, p.Get(psar)-(p.Get(psar)-ep)*af)
+
+		if p.Get(trend) == -1.0 {
+			c.Set(psar, m.Max(c.Get(psar), p.Get(HIGH)))
+			if i > 1 {
+				c.Set(psar, m.Max(c.Get(psar), prices.DataRows[i-2].Get(HIGH)))
+			}
+
+			if c.Get(HIGH) >= c.Get(psar) {
+				c.Set(psar, ep)
+			}
+		} else {
+			c.Set(psar, m.Min(c.Get(psar), p.Get(LOW)))
+			if i > 1 {
+				c.Set(psar, m.Min(c.Get(psar), prices.DataRows[i-2].Get(LOW)))
+			}
+
+			if c.Get(LOW) <= c.Get(psar) {
+				c.Set(psar, ep)
+			}
+		}
+
+		prevEp := ep
+
+		if c.Get(psar) > c.Get(ADJ_CLOSE) {
+			c.Set(trend, -1.0)
+			ep = m.Min(ep, c.Get(LOW))
+		} else {
+			c.Set(trend, 1.0)
+			ep = m.Max(ep, c.Get(HIGH))
+		}
+
+		if c.Get(trend) != p.Get(trend) {
+			af = psarAfStep
+		} else if prevEp != ep && af < psarAfMax {
+			af += psarAfStep
+		}
+	}
+
+	return psar
+}
+
+// The ChandelierExit function sets a trailing stop-loss based on the Average True Value (ATR).
+/*
+length = input(title="ATR Period", type=input.integer, defval=22)
+mult = input(title="ATR Multiplier", type=input.float, step=0.1, defval=3.0)
+showLabels = input(title="Show Buy/Sell Labels ?", type=input.bool, defval=true)
+useClose = input(title="Use Close Price for Extremums ?", type=input.bool, defval=true)
+highlightState = input(title="Highlight State ?", type=input.bool, defval=true)
+
+atr = mult * atr(length)
+
+longStop = (useClose ? highest(close, length) : highest(length)) - atr
+longStopPrev = nz(longStop[1], longStop)
+longStop := close[1] > longStopPrev ? max(longStop, longStopPrev) : longStop
+
+shortStop = (useClose ? lowest(close, length) : lowest(length)) + atr
+shortStopPrev = nz(shortStop[1], shortStop)
+shortStop := close[1] < shortStopPrev ? min(shortStop, shortStopPrev) : shortStop
+
+var int dir = 1
+dir := close > shortStopPrev ? 1 : close < longStopPrev ? -1 : dir
+*/
+func ChandelierExit(prices *Matrix, period int, multiplier float64) int {
+	// 0 = Long 1 = Short
+	l := prices.AddNamedColumn("Long")
+	s := prices.AddNamedColumn("Short")
+	ai := ATR(prices, period)
+	sh := SMA(prices, period, HIGH)
+	lh := SMA(prices, period, LOW)
+	for i := 0; i < prices.Rows; i++ {
+		c := &prices.DataRows[i]
+		c.Set(l, c.Get(sh)-multiplier*c.Get(ai))
+		c.Set(s, c.Get(lh)+multiplier*c.Get(ai))
+	}
+	prices.RemoveColumns(4)
+	//Chandelier Exit Long = 22-Period SMA High - ATR(22) * 3
+	//Chandelier Exit Short = 22-Period SMA Low + ATR(22) * 3
+	return l
+}
+
+func StratClassification(prices *Matrix) int {
+	// 1 = Inside 2 = 2 down 3 = 2 Up 4 = Outside
+	r := prices.AddNamedColumn("Strat")
+	for i := 1; i < prices.Rows; i++ {
+		c := &prices.DataRows[i]
+		p := &prices.DataRows[i-1]
+		if c.Get(HIGH) > p.Get(HIGH) {
+			c.Set(r, 3.0)
+			c.SetComment("2U")
+		}
+		if c.Get(LOW) < p.Get(LOW) {
+			c.Set(r, 2.0)
+			c.SetComment("2D")
+		}
+		if c.Get(HIGH) < p.Get(HIGH) && c.Get(LOW) > p.Get(LOW) {
+			c.Set(r, 1.0)
+			c.SetComment("IS")
+		}
+		if c.Get(HIGH) > p.Get(HIGH) && c.Get(LOW) < p.Get(LOW) {
+			c.Set(r, 4.0)
+			c.SetComment("OS")
+		}
+	}
+	return r
 }
