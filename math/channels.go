@@ -47,9 +47,11 @@ func CalculateDaysBetween(first, second string) (int, error) {
 }
 
 func CalculateTrendChannel(prices *Matrix) int {
-	// 0 = Upper 1 = Lower
+	// 0 = Upper 1 = Lower 2 = upper angle 3 = lower angle
 	ui := prices.AddColumn()
 	li := prices.AddColumn()
+	ua := prices.AddColumn()
+	la := prices.AddColumn()
 	points := prices.FindSwingPoints()
 	highs := points.FilterByType(High)
 	hc := len(highs)
@@ -61,6 +63,7 @@ func CalculateTrendChannel(prices *Matrix) int {
 			for j := ph.Index; j < ch.Index; j++ {
 				s := j - ph.Index
 				prices.DataRows[j].Set(ui, ph.Value+float64(s)*m)
+				prices.DataRows[j].Set(ua, m)
 			}
 		}
 		start := highs[hc-2].Index
@@ -69,6 +72,7 @@ func CalculateTrendChannel(prices *Matrix) int {
 		for i := start; i < prices.Rows; i++ {
 			s := i - start
 			prices.DataRows[i].Set(ui, h1.Value+float64(s)*m)
+			prices.DataRows[i].Set(ua, m)
 		}
 
 		lows := points.FilterByType(Low)
@@ -80,6 +84,7 @@ func CalculateTrendChannel(prices *Matrix) int {
 			for j := ph.Index; j < ch.Index; j++ {
 				s := j - ph.Index
 				prices.DataRows[j].Set(li, ph.Value+float64(s)*m)
+				prices.DataRows[j].Set(la, m)
 			}
 		}
 
@@ -89,6 +94,7 @@ func CalculateTrendChannel(prices *Matrix) int {
 		for i := start; i < prices.Rows; i++ {
 			s := i - start
 			prices.DataRows[i].Set(li, l1.Value+float64(s)*m)
+			prices.DataRows[i].Set(la, m)
 		}
 	}
 	return ui

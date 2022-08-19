@@ -353,9 +353,9 @@ func ACC(m *Matrix, short, long, s int) int {
 // -----------------------------------------------------------------------
 func MACD(m *Matrix, short, long, signal int) int {
 	// 0 = Line 1 = Signal 2 = Diff
-	ret := m.AddColumn()
-	sig := m.AddColumn()
-	diff := m.AddColumn()
+	ret := m.AddNamedColumn("MACD-Line")
+	sig := m.AddNamedColumn("MACD-Signal")
+	diff := m.AddNamedColumn("MACD-Diff")
 
 	f := EMA(m, short, 4)
 	s := EMA(m, long, 4)
@@ -711,12 +711,33 @@ func ROC(m *Matrix, days, field int) int {
 }
 
 // -----------------------------------------------------------------------
+// Tom Denmark ROC
+// -----------------------------------------------------------------------
+func TDROC(m *Matrix, days, field int) int {
+	// 0 = ROC
+	ret := m.AddNamedColumn(fmt.Sprintf("TDROC%d", days))
+	start := days
+	for i := days; i < m.Rows; i++ {
+		if i >= start {
+			current := m.DataRows[i].Get(field)
+			prev := m.DataRows[i-days].Get(field)
+			v := 0.0
+			if prev != 0.0 {
+				v = current / prev * 100.0
+			}
+			m.DataRows[i].Set(ret, v)
+		}
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
 // Stochastic
 // -----------------------------------------------------------------------
 func Stochastic(m *Matrix, days, ema int) int {
 	// 0 = K 1 = D
-	k := m.AddColumn()
-	d := m.AddColumn()
+	k := m.AddNamedColumn("Stoch")
+	d := m.AddNamedColumn("Stoch-K")
 	v := m.AddColumn()
 	total := m.Rows
 	if total < days {
@@ -881,9 +902,9 @@ func standardAbbreviation(m *Matrix, v float64, offset, cnt int) float64 {
 // -----------------------------------------------------------------------
 func BollingerBand(m *Matrix, ema int, upper, lower float64) int {
 	// 0 = Upper 1 = Lower 2 = Mid
-	upIdx := m.AddColumn()
-	lowIdx := m.AddColumn()
-	midIdx := m.AddColumn()
+	upIdx := m.AddNamedColumn("BB-UP")
+	lowIdx := m.AddNamedColumn("BB-LOW")
+	midIdx := m.AddNamedColumn("BB-MID")
 	sma := SMA(m, ema, 4)
 	std := m.StdDev(4, ema)
 	for i := 0; i < m.Rows; i++ {
@@ -1325,6 +1346,13 @@ func RelativeVolume(m *Matrix, period int) int {
 	return ret
 }
 
+func AveragePrice(m *Matrix) int {
+	ret := m.Apply(func(mr MatrixRow) float64 {
+		return (mr.Get(HIGH) + mr.Get(LOW) + mr.Get(ADJ_CLOSE)) / 3.0
+	})
+	return ret
+}
+
 // -----------------------------------------------------------------------
 //  VO
 // -----------------------------------------------------------------------
@@ -1621,34 +1649,62 @@ func STDStochastic(prices *Matrix, days int) int {
 // -----------------------------------------------------------------------
 // DeMark
 // -----------------------------------------------------------------------
-func DeMark(m *Matrix) int {
+func DeMark(candles *Matrix) int {
 	// 0 = Trend 1 = Count
-	trend := m.AddColumn()
-	count := m.AddColumn()
-	bu := 0
-	be := 0
-	for i := 4; i < m.Rows; i++ {
-		c := m.DataRows[i].Get(ADJ_CLOSE)
-		p := m.DataRows[i-4].Get(ADJ_CLOSE)
+	trend := candles.AddColumn()
+	count := candles.AddColumn()
+	ct := 0
+	cur := 1
+	for i := 4; i < candles.Rows; i++ {
+		c := candles.DataRows[i].Get(ADJ_CLOSE)
+		p := candles.DataRows[i-4].Get(ADJ_CLOSE)
+		t := 0
 		if c > p {
-			// if bearish > 8 there might be a trend reversal to bullish
-			if be > 8 && bu == 0 {
-				m.DataRows[i].Set(trend, 1.0)
-				m.DataRows[i].Set(count, float64(be))
-			}
-			bu++
-			be = 0
+			t = 1
+			cur++
 		} else {
-			// if bullish > 8 there might be a trend reversal to bearish
-			if bu > 8 && be == 0 {
-				m.DataRows[i].Set(trend, -1.0)
-				m.DataRows[i].Set(count, float64(bu))
-			}
-			bu = 0
-			be++
+			t = -1
+			cur++
 		}
+		if t != ct {
+			cur = 1
+			ct = t
+		}
+		candles.DataRows[i].Set(trend, float64(t))
+		candles.DataRows[i].Set(count, float64(cur))
 	}
 	return trend
+}
+
+// https://kaabar-sofien.medium.com/the-demarker-contrarian-indicator-a-study-in-python-2caa066a30e1
+func DeMarker(m *Matrix, days int) int {
+	// 0 = Trend
+	ret := m.AddNamedColumn("Demark")
+	ma := m.AddColumn()
+	mi := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		p := m.DataRows[i-1]
+		dh := c.Get(HIGH) - p.Get(HIGH)
+		if dh > 0.0 {
+			m.DataRows[i].Set(ma, dh)
+		}
+		dl := p.Get(LOW) - c.Get(LOW)
+		if dl > 0.0 {
+			m.DataRows[i].Set(mi, dl)
+		}
+
+	}
+	s1 := EMA(m, days, ma)
+	s2 := EMA(m, days, mi)
+	for i := 0; i < m.Rows; i++ {
+		s := m.DataRows[i].Get(s1) + m.DataRows[i].Get(s2)
+		if s != 0.0 {
+			m.DataRows[i].Set(ret, m.DataRows[i].Get(s1)/s)
+		}
+	}
+	m.RemoveColumns(4)
+	return ret
 }
 
 // -----------------------------------------------------------------------
@@ -3309,6 +3365,22 @@ func VPT(prices *Matrix) int {
 	return ret
 }
 
+// -------------------------------------------------------
+// Time Weighted Moving Average
+// -------------------------------------------------------
+// https://blog.quantinsti.com/twap/
+func TWAP(prices *Matrix, period int) int {
+	// 0 = TWAP
+	ret := prices.AddColumn()
+	sum := prices.Apply(func(mr MatrixRow) float64 {
+		return (mr.Get(OPEN) + mr.Get(HIGH) + mr.Get(LOW) + mr.Get(ADJ_CLOSE)) / 4.0
+	})
+	si := SMA(prices, period, sum)
+	prices.CopyColumn(si, ret)
+	prices.RemoveColumns(2)
+	return ret
+}
+
 func ParabolicSAR(prices *Matrix) int {
 	// 0 = PSAR 1 = Trend
 	const (
@@ -3418,20 +3490,410 @@ func StratClassification(prices *Matrix) int {
 		p := &prices.DataRows[i-1]
 		if c.Get(HIGH) > p.Get(HIGH) {
 			c.Set(r, 3.0)
-			c.SetComment("2U")
+			c.SetComment("2u")
 		}
 		if c.Get(LOW) < p.Get(LOW) {
 			c.Set(r, 2.0)
-			c.SetComment("2D")
+			c.SetComment("2d")
 		}
-		if c.Get(HIGH) < p.Get(HIGH) && c.Get(LOW) > p.Get(LOW) {
+		if c.Get(HIGH) <= p.Get(HIGH) && c.Get(LOW) >= p.Get(LOW) {
 			c.Set(r, 1.0)
-			c.SetComment("IS")
+			c.SetComment("1")
 		}
-		if c.Get(HIGH) > p.Get(HIGH) && c.Get(LOW) < p.Get(LOW) {
+		if c.Get(HIGH) >= p.Get(HIGH) && c.Get(LOW) <= p.Get(LOW) {
 			c.Set(r, 4.0)
-			c.SetComment("OS")
+			c.SetComment("3")
 		}
 	}
 	return r
 }
+
+func StratPMG(prices *Matrix) int {
+	r := prices.AddNamedColumn("PMG")
+	cnt := 5
+	for i := cnt; i < prices.Rows; i++ {
+		cn := 1
+		cur := prices.DataRows[i].Get(HIGH)
+		for j := i - 1; j >= 0; j-- {
+			if prices.DataRows[j].Get(HIGH) < cur {
+				cn++
+				cur = prices.DataRows[j].Get(HIGH)
+			} else {
+				break
+			}
+		}
+		if cn > 4 {
+			c := &prices.DataRows[i]
+			c.Set(r, 1.0)
+			c.SetComment(fmt.Sprintf("PMG UP %d", cn))
+		}
+	}
+	for i := cnt; i < prices.Rows; i++ {
+		cn := 1
+		cur := prices.DataRows[i].Get(LOW)
+		for j := i - 1; j >= 0; j-- {
+			if prices.DataRows[j].Get(LOW) > cur {
+				cn++
+				cur = prices.DataRows[j].Get(LOW)
+			} else {
+				break
+			}
+		}
+		if cn > 4 {
+			c := &prices.DataRows[i]
+			c.Set(r, -1.0)
+			c.SetComment(fmt.Sprintf("PMG DOWN %d", cn))
+		}
+	}
+	return r
+}
+
+type Gap struct {
+	Timestamp string
+	Upper     float64
+	Lower     float64
+	Filled    int
+	Index     int
+}
+
+type FairValueGap struct {
+	Timestamp string
+	Upper     float64
+	Lower     float64
+	Filled    int
+	Index     int
+}
+
+func getGapState(lower, upper, low, high float64) int {
+	if high > upper && low < lower {
+		return 1
+	}
+	if high > upper && low > upper {
+		return 0
+	}
+	if high < lower && low < lower {
+		return 0
+	}
+	if high > upper && low > lower {
+		return 2
+	}
+	if high < upper && low < lower {
+		return 3
+	}
+	if high < upper && low > lower {
+		return 4
+	}
+	return 0
+}
+
+func MergeGaps(gaps []FairValueGap) []FairValueGap {
+	for j := 1; j < len(gaps); j++ {
+		cg := &gaps[j]
+		if cg.Filled == 0 {
+			s := j - 10
+			if s < 0 {
+				s = 0
+			}
+			for i := s; i < j; i++ {
+				ng := &gaps[i]
+				if ng.Filled == 0 {
+					t := 0
+					if cg.Upper <= ng.Upper && cg.Upper >= ng.Lower && cg.Lower >= ng.Lower {
+						t = 1
+					}
+					if cg.Upper >= ng.Upper && cg.Lower <= ng.Lower {
+						t = 1
+					}
+					if cg.Upper >= ng.Upper && cg.Lower >= ng.Lower && cg.Lower <= ng.Upper {
+						t = 1
+					}
+					if t == 1 {
+						ng.Filled = 1
+						cg.Lower = m.Min(cg.Lower, ng.Lower)
+						cg.Upper = m.Max(cg.Upper, ng.Upper)
+					}
+				}
+			}
+		}
+	}
+	var ret = make([]FairValueGap, 0)
+	for _, g := range gaps {
+		if g.Filled == 0 {
+			ret = append(ret, g)
+		}
+	}
+	return ret
+}
+
+func FindFairValueGaps3(candles *Matrix) []FairValueGap {
+	var gaps = make([]FairValueGap, 0)
+	for i := 2; i < candles.Rows; i++ {
+		c := candles.Row(i)
+		p := candles.Row(i - 2)
+		if c.Get(HIGH) < p.Get(LOW) {
+			gaps = append(gaps, FairValueGap{
+				Timestamp: c.Key,
+				Filled:    0,
+				Upper:     p.Get(LOW),
+				Lower:     c.Get(HIGH),
+				Index:     i - 2,
+			})
+		}
+		if c.Get(LOW) > p.Get(HIGH) {
+			gaps = append(gaps, FairValueGap{
+				Timestamp: c.Key,
+				Filled:    0,
+				Upper:     c.Get(LOW),
+				Lower:     p.Get(HIGH),
+				Index:     i - 2,
+			})
+		}
+	}
+	for j, g := range gaps {
+		cg := &gaps[j]
+		for i := g.Index + 3; i < candles.Rows; i++ {
+			c := candles.Row(i)
+			state := getGapState(cg.Lower, cg.Upper, c.Get(LOW), c.Get(HIGH))
+			if state == 1 {
+				cg.Filled = 1
+				break
+			} else if state == 2 {
+				cg.Upper = c.Get(LOW)
+			} else if state == 3 {
+				cg.Lower = c.Get(HIGH)
+			} else if state == 4 {
+				fmt.Println("SPLIT IT:", c.Key)
+			}
+			if cg.Upper < cg.Lower {
+				cg.Filled = 1
+				break
+			}
+		}
+	}
+	return MergeGaps(gaps)
+}
+
+func FindFairValueGaps(candles *Matrix) []Gap {
+	var gaps = make([]Gap, 0)
+	for i := 2; i < candles.Rows; i++ {
+		c := candles.Row(i)
+		p := candles.Row(i - 2)
+		if c.Get(HIGH) < p.Get(LOW) {
+			gaps = append(gaps, Gap{
+				Timestamp: c.Key,
+				Filled:    0,
+				Upper:     p.Get(LOW),
+				Lower:     c.Get(HIGH),
+				Index:     i - 2,
+			})
+		}
+		if c.Get(LOW) > p.Get(HIGH) {
+			gaps = append(gaps, Gap{
+				Timestamp: c.Key,
+				Filled:    0,
+				Upper:     c.Get(LOW),
+				Lower:     p.Get(HIGH),
+				Index:     i - 2,
+			})
+		}
+	}
+	for j, g := range gaps {
+		cg := &gaps[j]
+		for i := g.Index + 3; i < candles.Rows; i++ {
+			c := candles.Row(i)
+			state := getGapState(cg.Lower, cg.Upper, c.Get(LOW), c.Get(HIGH))
+			if state == 1 {
+				cg.Filled = 1
+				break
+			} else if state == 2 {
+				cg.Upper = c.Get(LOW)
+			} else if state == 3 {
+				cg.Lower = c.Get(HIGH)
+			} else if state == 4 {
+				fmt.Println("SPLIT IT:", c.Key)
+			}
+			if cg.Upper < cg.Lower {
+				cg.Filled = 1
+				break
+			}
+		}
+	}
+	for j := 1; j < len(gaps); j++ {
+		cg := &gaps[j]
+		if cg.Filled == 0 {
+			s := j - 10
+			if s < 0 {
+				s = 0
+			}
+			for i := s; i < len(gaps); i++ {
+				ng := &gaps[i]
+				if ng.Filled == 0 {
+					t := 0
+					if cg.Upper < ng.Upper && cg.Upper > ng.Lower && cg.Lower < ng.Lower {
+						t = 1
+					}
+					if cg.Upper > ng.Upper && cg.Lower > ng.Lower && cg.Lower < ng.Upper {
+						t = 1
+					}
+					if t == 1 {
+						ng.Filled = 1
+						cg.Lower = m.Min(cg.Lower, ng.Lower)
+						cg.Upper = m.Max(cg.Upper, ng.Upper)
+					}
+				}
+			}
+		}
+	}
+	return gaps
+}
+
+func FindFairValueGaps2(candles *Matrix) []Gap {
+	var gaps = make([]Gap, 0)
+	for i := 2; i < candles.Rows; i++ {
+		c := candles.Row(i)
+		p := candles.Row(i - 1)
+		p2 := candles.Row(i - 2)
+		if c.Get(HIGH) < p2.Get(LOW) && p.Get(ADJ_CLOSE) < p2.Get(LOW) {
+			gaps = append(gaps, Gap{
+				Timestamp: c.Key,
+				Filled:    0,
+				Upper:     p2.Get(LOW),
+				Lower:     c.Get(HIGH),
+				Index:     i - 2,
+			})
+		}
+		if c.Get(LOW) > p2.Get(HIGH) && p.Get(ADJ_CLOSE) > p2.Get(HIGH) {
+			gaps = append(gaps, Gap{
+				Timestamp: c.Key,
+				Filled:    0,
+				Upper:     c.Get(LOW),
+				Lower:     p2.Get(HIGH),
+				Index:     i - 2,
+			})
+		}
+	}
+	for j, g := range gaps {
+		cg := &gaps[j]
+		for i := g.Index + 3; i < candles.Rows; i++ {
+			c := candles.Row(i)
+			state := getGapState(cg.Lower, cg.Upper, c.Get(LOW), c.Get(HIGH))
+			if state == 1 {
+				cg.Filled = 1
+				break
+			} else if state == 2 {
+				cg.Upper = c.Get(LOW)
+			} else if state == 3 {
+				cg.Lower = c.Get(HIGH)
+			} else if state == 4 {
+				fmt.Println("SPLIT IT:", c.Key)
+			}
+			if cg.Upper < cg.Lower {
+				cg.Filled = 1
+				break
+			}
+		}
+	}
+	return gaps
+}
+
+/*
+study(title="Normalized smoothed MACD", shorttitle = "NSM", overlay=false)
+//
+inpFastPeriod   = input(defval=12, title="MACD fast period", minval=1, type=input.integer)
+inpSlowPeriod   = input(defval=26, title="MACD slow period", minval=1, type=input.integer)
+inpMacdSignal   = input(defval=9, title="Signal period", minval=1, type=input.integer)
+inpSmoothPeriod = input(defval=5, title="Smoothing period", minval=1, type=input.integer)
+inpNormPeriod   = input(defval=20, title="Normalization period", minval=1, type=input.integer)
+price           = input(close, title="Price Source",type=input.source)
+//
+emaf = 0.0
+emas = 0.0
+val  = 0.0
+nval = 0.0
+sig  = 0.0
+//
+red  =color.new(#FF0000, 0)
+green=color.new(#32CD32, 0)
+black=color.new(#000000, 0)
+//
+if bar_index > inpSlowPeriod
+    alphaf   = 2.0/(1.0+max(inpFastPeriod,1))
+    alphas   = 2.0/(1.0+max(inpSlowPeriod,1))
+    alphasig = 2.0/(1.0+max(inpMacdSignal,1))
+    alphasm  = 2.0/(1.0+max(inpSmoothPeriod,1))
+
+    emaf := emaf[1]+alphaf*(price-emaf[1])
+    emas := emas[1]+alphas*(price-emas[1])
+    imacd = emaf-emas
+
+    mmax = highest(imacd,inpNormPeriod)
+    mmin = lowest(imacd,inpNormPeriod)
+    if mmin != mmax
+        nval := 2.0*(imacd-mmin)/(mmax-mmin)-1.0
+    else
+        nval := 0
+
+    val := val[1] + alphasm*(nval-val[1])
+    sig := sig[1] + alphasig*(val-sig[1])
+//
+plot(val, color=val>val[1]?green:red, style=plot.style_line, linewidth=2, title="Reg smooth MACD")
+plot(sig, color=black, style=plot.style_cross, linewidth=1, title="Signal line")
+hline(0, title='0', color=color.gray, linestyle=hline.style_dotted, linewidth=1)
+//
+alertcondition(crossunder(val,sig),title="Sell",message="Sell")
+alertcondition(crossover(val,sig),title="Buy",message="Buy")
+alertcondition(crossunder(val,sig) or crossover(val,sig) ,title="Sell/Buy",message="Sell/Buy")
+*/
+
+/*
+
+study(title="Zero Lag MACD Enhanced - Version 1.2", shorttitle="Zero Lag MACD Enhanced 1.2")
+source = close
+
+fastLength = input(12, title="Fast MM period", minval=1)
+slowLength = input(26,title="Slow MM period",  minval=1)
+signalLength =input(9,title="Signal MM period",  minval=1)
+MacdEmaLength =input(9, title="MACD EMA period", minval=1)
+useEma = input(true, title="Use EMA (otherwise SMA)")
+useOldAlgo = input(false, title="Use Glaz algo (otherwise 'real' original zero lag)")
+showDots = input(true, title="Show symbols to indicate crossing")
+dotsDistance = input(1.5, title="Symbols distance factor", minval=0.1)
+
+// Fast line
+ma1= useEma ? ema(source, fastLength) : sma(source, fastLength)
+ma2 = useEma ?  ema(ma1,fastLength) :  sma(ma1,fastLength)
+zerolagEMA = ((2 * ma1) - ma2)
+
+// Slow line
+mas1=  useEma ? ema(source , slowLength) :  sma(source , slowLength)
+mas2 =  useEma ? ema(mas1 , slowLength): sma(mas1 , slowLength)
+zerolagslowMA = ((2 * mas1) - mas2)
+
+// MACD line
+ZeroLagMACD = zerolagEMA - zerolagslowMA
+
+// Signal line
+emasig1 = ema(ZeroLagMACD, signalLength)
+emasig2 = ema(emasig1, signalLength)
+signal = useOldAlgo ? sma(ZeroLagMACD, signalLength) : (2 * emasig1) - emasig2
+
+hist = ZeroLagMACD - signal
+
+upHist = (hist > 0) ? hist : 0
+downHist = (hist <= 0) ? hist : 0
+
+p1 = plot(upHist, color=green, transp=40, style=columns, title='Positive delta')
+p2 = plot(downHist, color=purple, transp=40, style=columns, title='Negative delta')
+
+zeroLine = plot(ZeroLagMACD, color=black, transp=0, linewidth=2, title='MACD line')
+signalLine = plot(signal, color=gray, transp=0, linewidth=2, title='Signal')
+
+ribbonDiff = hist > 0 ? green : purple
+fill(zeroLine, signalLine, color=ribbonDiff)
+
+circleYPosition = signal*dotsDistance
+plot(ema(ZeroLagMACD,MacdEmaLength) , color=red, transp=0, linewidth=2, title='EMA on MACD line')
+
+ribbonDiff2 = hist > 0 ? green : purple
+plot(showDots and cross(ZeroLagMACD, signal) ? circleYPosition : na,style=circles, linewidth=4, color=ribbonDiff2, title='Dots')
+*/

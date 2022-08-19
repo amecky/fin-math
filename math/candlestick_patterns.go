@@ -1,6 +1,7 @@
 package math
 
 import (
+	"math"
 	m "math"
 )
 
@@ -51,9 +52,9 @@ func TranslatePattern(v float64) string {
 func TranslatePatternShort(v float64) string {
 	switch v {
 	case 1.0:
-		return "HA"
+		return "HAM"
 	case 2.0:
-		return "SS"
+		return "SHT"
 	case 3.0:
 		return "BUE"
 	case 4.0:
@@ -67,7 +68,7 @@ func TranslatePatternShort(v float64) string {
 	case 8.0:
 		return "HBU"
 	case 9.0:
-		return "DJ"
+		return "DJI"
 	case 10.0:
 		return "IHA"
 	case 11.0:
@@ -231,4 +232,30 @@ func FindCandleStickPatterns(prices *Matrix) int {
 	}
 	prices.RemoveColumns(11)
 	return ret
+}
+
+func FindSingleBarCandleStickPattern(row *MatrixRow) string {
+	//
+	// Single Bar patterns
+	//
+	top := math.Max(row.Get(OPEN), row.Get(ADJ_CLOSE))
+	bottom := math.Min(row.Get(OPEN), row.Get(ADJ_CLOSE))
+	uwAbs := row.Get(HIGH) - top
+	lwAbs := bottom - row.Get(LOW)
+
+	td := row.Get(HIGH) - row.Get(LOW)
+
+	uw := uwAbs / td * 100.0
+	lw := lwAbs / td * 100.0
+
+	if uw > 45.0 && lw > 45.0 {
+		return "DJI"
+	}
+	if lw >= 66.0 {
+		return "HAM"
+	}
+	if uw > 66.0 {
+		return "SHT"
+	}
+	return ""
 }

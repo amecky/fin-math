@@ -1,9 +1,13 @@
 package math
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	m "math"
 	ma "math"
+	"os"
+	"strconv"
 	"strings"
 )
 
@@ -79,6 +83,7 @@ type SwingPoint struct {
 	Value     float64
 	Price     float64
 	Index     int
+	Trend     int
 }
 
 func (s SwingPointType) String() string {
@@ -252,6 +257,16 @@ func (m Matrix) Last() *MatrixRow {
 	return nil
 }
 
+func (m Matrix) Row(index int) *MatrixRow {
+	if index < 0 {
+		index = m.Rows + index - 1
+	}
+	if m.Rows > index {
+		return &m.DataRows[index]
+	}
+	return nil
+}
+
 func (m *Matrix) PartialSum(field, start, count int) float64 {
 	sum := 0.0
 	if start >= m.Rows {
@@ -343,9 +358,9 @@ func (mr MatrixRow) String() string {
 	builder.WriteString("Key: ")
 	builder.WriteString(mr.Key)
 	for _, n := range mr.Values {
-		builder.WriteString(fmt.Sprintf("%.2f ", n))
+		builder.WriteString(fmt.Sprintf(" %.2f", n))
 	}
-	builder.WriteString("C: ")
+	builder.WriteString(" C: ")
 	builder.WriteString(mr.Comment)
 	return builder.String()
 }
@@ -579,6 +594,30 @@ func (m *Matrix) Categorize2(target int, check func(mr MatrixRow) float64) {
 	}
 }
 
+type Evaluator struct {
+	Name  string
+	Start int
+	Run   func(m *Matrix, index int) bool
+}
+
+func (m *Matrix) Evaluate(eval Evaluator) int {
+	ret := m.AddNamedColumn(eval.Name)
+	for i := eval.Start; i < m.Rows; i++ {
+		if i >= eval.Start {
+			if eval.Run(m, i) {
+				m.DataRows[i].Set(ret, 1.0)
+			}
+		}
+	}
+	return ret
+}
+
+func (m *Matrix) ForEach(fn func(mr *MatrixRow)) {
+	for i := 0; i < m.Rows; i++ {
+		fn(&m.DataRows[i])
+	}
+}
+
 func (m *Matrix) Apply(fn func(mr MatrixRow) float64) int {
 	ret := m.AddColumn()
 	for i, s := range m.DataRows {
@@ -636,8 +675,10 @@ func (m *Matrix) FindSwingPoints() SwingPoints {
 			}
 			if sp.Value > hv {
 				sp.Type = HigherHigh
+				sp.Trend = 1
 				hv = sp.Value
 			} else {
+				sp.Trend = -1
 				sp.Type = LowerHigh
 				hv = sp.Value
 			}
@@ -653,9 +694,11 @@ func (m *Matrix) FindSwingPoints() SwingPoints {
 				BaseType:  Low,
 			}
 			if sp.Value < lv {
+				sp.Trend = -1
 				sp.Type = LowerLow
 				lv = sp.Value
 			} else {
+				sp.Trend = 1
 				sp.Type = HigherLow
 				lv = sp.Value
 			}
@@ -911,4 +954,70 @@ func (ma *Matrix) FindSupportResistance(lookback int, threshold float64) []float
 		}
 	}
 	return points
+}
+
+func SaveMatrix(m *Matrix, fileName string, cols int) error {
+	if cols >= m.Rows {
+		return errors.New("Number of columns exceeded matrix")
+	}
+	f, err := os.Create(fileName)
+
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	defer f.Close()
+
+	for _, p := range m.DataRows {
+		_, err2 := f.WriteString(p.Key)
+		if err2 != nil {
+			fmt.Println(err2)
+			return err2
+		}
+		for i := 0; i < cols; i++ {
+			_, err2 = f.WriteString(fmt.Sprintf(";%.2f", p.Get(i)))
+			if err2 != nil {
+				fmt.Println(err2)
+				return err2
+			}
+		}
+		_, err2 = f.WriteString("\n")
+
+	}
+	return nil
+}
+
+func LoadMatrix(fileName string, cols int) (*Matrix, error) {
+	m := NewMatrix(cols)
+	inFile, err := os.Open(fileName)
+	if err != nil {
+		fmt.Println(err.Error() + `: ` + fileName)
+		return nil, err
+	}
+	defer inFile.Close()
+	r := bufio.NewReader(inFile)
+	bytes := []byte{}
+	for {
+		line, isPrefix, err := r.ReadLine()
+		if err != nil {
+			break
+		}
+		bytes = append(bytes, line...)
+		if !isPrefix {
+			str := strings.TrimSpace(string(bytes))
+			if len(str) > 0 {
+				entries := strings.Split(str, ";")
+				if len(entries) == cols {
+					r := m.AddRow(entries[0])
+					for i := 0; i < cols-1; i++ {
+						open, _ := strconv.ParseFloat(entries[i+1], 64)
+						r.Set(i, open)
+					}
+				}
+				bytes = []byte{}
+			}
+		}
+	}
+	return m, nil
 }
