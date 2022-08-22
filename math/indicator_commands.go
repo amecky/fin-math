@@ -10,6 +10,7 @@ import (
 type IndicatorCmd struct {
 	Name        string
 	CountParams int
+	Format      int
 	Run         func(candles *Matrix, params []string) int
 }
 
@@ -20,6 +21,7 @@ var INDICATOR_COMMANDS = []*IndicatorCmd{
 	lowCmd,
 	volumeCmd,
 	emaCmd,
+	priceEMACmd,
 	rsiCmd,
 	stochasticCmd,
 	twapCmd,
@@ -126,6 +128,7 @@ var INDICATOR_COMMANDS = []*IndicatorCmd{
 	chandelierexitCmd,
 	stratclassificationCmd,
 	stratpmgCmd,
+	priceTwapCmd,
 }
 
 var closeCmd = &IndicatorCmd{
@@ -178,6 +181,19 @@ var emaCmd = &IndicatorCmd{
 	},
 }
 
+var priceEMACmd = &IndicatorCmd{
+	Name:        "Price-EMA",
+	CountParams: 1,
+	Format:      1,
+	Run: func(candles *Matrix, params []string) int {
+		days, _ := strconv.Atoi(params[0])
+		ti := EMA(candles, days, ADJ_CLOSE)
+		return candles.Apply(func(mr MatrixRow) float64 {
+			return ChangePercentage(mr.Get(ADJ_CLOSE), mr.Get(ti))
+		})
+	},
+}
+
 var rsiCmd = &IndicatorCmd{
 	Name:        "RSI",
 	CountParams: 1,
@@ -206,6 +222,19 @@ var twapCmd = &IndicatorCmd{
 	},
 }
 
+var priceTwapCmd = &IndicatorCmd{
+	Name:        "Price-TWAP",
+	CountParams: 1,
+	Format:      1,
+	Run: func(candles *Matrix, params []string) int {
+		days, _ := strconv.Atoi(params[0])
+		ti := TWAP(candles, days)
+		return candles.Apply(func(mr MatrixRow) float64 {
+			return ChangePercentage(mr.Get(ADJ_CLOSE), mr.Get(ti))
+		})
+	},
+}
+
 var smaCmd = &IndicatorCmd{
 	Name:        "SMA",
 	CountParams: 2,
@@ -228,6 +257,7 @@ var adxCmd = &IndicatorCmd{
 var rocCmd = &IndicatorCmd{
 	Name:        "ROC",
 	CountParams: 1,
+	Format:      1,
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return ROC(candles, days, ADJ_CLOSE)
@@ -1220,4 +1250,13 @@ func RunIndicatorCmd(name string, candles *Matrix, params string) (int, error) {
 		}
 	}
 	return -1, errors.New("No matching indicator found: " + name)
+}
+
+func GetIndicatorCmd(name string) *IndicatorCmd {
+	for _, ic := range INDICATOR_COMMANDS {
+		if ic.Name == name {
+			return ic
+		}
+	}
+	return nil
 }

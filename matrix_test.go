@@ -117,20 +117,3 @@ func TestMatrixAdd(t *testing.T) {
 	assert.Equals(t, "Wrong column index", 1.0, float64(col))
 	assert.Equals(t, "Wrong value", 8.0, m.FindRow("2").Get(1))
 }
-
-func TestMatrixCategorize(t *testing.T) {
-	m := math.NewMatrix(1)
-	m.AddRow("1").Set(0, 1.0)
-	m.AddRow("2").Set(0, 10.0)
-	m.AddRow("3").Set(0, -4.0)
-	col := m.Categorize(0, func(v float64) float64 {
-		if v >= 0.0 {
-			return 1.0
-		} else {
-			return -1.0
-		}
-	})
-	assert.Equals(t, "Wrong column index", 1.0, float64(col))
-	assert.Equals(t, "Wrong value", 1.0, m.FindRow("2").Get(col))
-	assert.Equals(t, "Wrong value", -1.0, m.FindRow("3").Get(col))
-}
