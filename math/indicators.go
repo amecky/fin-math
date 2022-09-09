@@ -940,6 +940,23 @@ func BollingerBand_Price_Relation(m *Matrix, ema int, upper, lower float64) int 
 }
 
 // -----------------------------------------------------------------------
+// Any channel and Price Position
+// -----------------------------------------------------------------------
+func ChannelPriceRelation(m *Matrix, upperIndex, lowerIndex int) int {
+	// 0 = BBPR
+	ret := m.AddColumn()
+	for i := 0; i < m.Rows; i++ {
+		cb := m.DataRows[i]
+		d := cb.Get(upperIndex) - cb.Get(lowerIndex)
+		if d != 0.0 {
+			per := (1.0 - (cb.Get(upperIndex)-cb.Get(ADJ_CLOSE))/d) * 100.0
+			m.DataRows[i].Set(ret, per)
+		}
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
 // ESDBand - like Bollinger but uses EMA
 // -----------------------------------------------------------------------
 func ESDBand(m *Matrix, ema int, upper, lower float64) int {
@@ -958,6 +975,24 @@ func ESDBand(m *Matrix, ema int, upper, lower float64) int {
 	m.RemoveColumn()
 	m.RemoveColumn()
 	return upIdx
+}
+
+func EMAChannelPriceRelation(m *Matrix, ema int, upper, lower float64) int {
+	// 0 = Upper 1 = Lower 2 = Mid
+	upIdx := m.AddColumn()
+	lowIdx := m.AddColumn()
+	midIdx := m.AddColumn()
+	sma := EMA(m, ema, 4)
+	std := m.StdDev(4, ema)
+	for i := 0; i < m.Rows; i++ {
+		sa := m.DataRows[i].Get(std)
+		m.DataRows[i].Set(upIdx, m.DataRows[i].Get(sma)+sa*upper)
+		m.DataRows[i].Set(lowIdx, m.DataRows[i].Get(sma)-sa*lower)
+		m.DataRows[i].Set(midIdx, m.DataRows[i].Get(sma))
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ChannelPriceRelation(m, upIdx, lowIdx)
 }
 
 // -----------------------------------------------------------------------
@@ -1588,6 +1623,18 @@ func PriceATR(prices *Matrix, period int) int {
 		prev := prices.DataRows[i-1]
 		sl := m.Abs(cp.Get(ADJ_CLOSE) - prev.Get(ADJ_CLOSE))
 		value := ChangePercentage(sl, cp.Get(atrIdx))
+		prices.DataRows[i].Set(ret, value)
+	}
+	prices.RemoveColumns(2)
+	return ret
+}
+
+func RangeATR(prices *Matrix, period int) int {
+	ret := prices.AddColumn()
+	atrIdx := ATR(prices, period)
+	for i := 0; i < prices.Rows; i++ {
+		cp := prices.DataRows[i]
+		value := ChangePercentage(cp.Get(HIGH)-cp.Get(LOW), cp.Get(atrIdx))
 		prices.DataRows[i].Set(ret, value)
 	}
 	prices.RemoveColumns(2)
@@ -3176,6 +3223,66 @@ func FisherTransform(prices *Matrix, period, signal int) int {
 	}
 	prices.RemoveColumns(1)
 	SMA(prices, signal, ret)
+	return ret
+}
+
+func LaguerreRSI(prices *Matrix, alpha float64) int {
+	ret := prices.AddNamedColumn("Laguerre")
+	l0s := prices.AddColumn()
+	l1s := prices.AddColumn()
+	l2s := prices.AddColumn()
+	l3s := prices.AddColumn()
+	gamma := 1.0 - alpha
+	for i := 1; i < prices.Rows; i++ {
+		c := prices.DataRows[i]
+		p := prices.DataRows[i-1]
+		// L0 := (1-gamma) * src + gamma * nz(L0[1])
+		l0 := (1.0-gamma)*c.Get(ADJ_CLOSE) + gamma*p.Get(l0s)
+		c.Set(l0s, l0)
+		// L1 := -gamma * L0 + nz(L0[1]) + gamma * nz(L1[1])
+		l1 := -gamma*l0 + p.Get(l0s) + gamma*p.Get(l1s)
+		c.Set(l1s, l1)
+		// L2 := -gamma * L1 + nz(L1[1]) + gamma * nz(L2[1])
+		l2 := -gamma*c.Get(l1s) + l1 + gamma*p.Get(l2s)
+		c.Set(l2s, l2)
+		// L3 := -gamma * L2 + nz(L2[1]) + gamma * nz(L3[1])
+		l3 := -gamma*l2 + p.Get(l2s) + gamma*p.Get(l3s)
+		c.Set(l3s, l3)
+
+		// (L0>L1 ? L0-L1 : 0) + (L1>L2 ? L1-L2 : 0) + (L2>L3 ? L2-L3 : 0)
+		cu := 0.0
+		if l0 > l1 {
+			cu = l0 - l1
+		}
+		if l1 > l2 {
+			cu += (l1 - l2)
+		}
+		if l2 > l3 {
+			cu += (l2 - l3)
+		}
+		//cd= (L0<L1 ? L1-L0 : 0) + (L1<L2 ? L2-L1 : 0) + (L2<L3 ? L3-L2 : 0)
+		cd := 0.0
+		if l0 < l1 {
+			cd = l1 - l0
+		}
+		if l1 < l2 {
+			cd += (l2 - l1)
+		}
+		if l2 < l3 {
+			cd += (l3 - l2)
+		}
+
+		// temp= cu+cd==0 ? -1 : cu+cd
+		temp := -1.0
+		if cu+cd != 0.0 {
+			temp = cu + cd
+		}
+		// LaRSI=temp==-1 ? 0 : cu/temp
+		if temp != -1 {
+			c.Set(ret, cu/temp*100.0)
+		}
+	}
+	prices.RemoveColumns(4)
 	return ret
 }
 

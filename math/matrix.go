@@ -108,6 +108,42 @@ func (s SwingPointType) String() string {
 
 type SwingPoints []SwingPoint
 
+func (sps SwingPoints) FindTwoHH(start int) int {
+	ht := 0
+	for i := start; i < len(sps); i++ {
+		cur := sps[i]
+		if cur.BaseType == High {
+			if cur.Type == HigherHigh {
+				ht++
+			} else {
+				ht = 0
+			}
+		}
+		if ht == 2 {
+			return i
+		}
+	}
+	return -1
+}
+
+func (sps SwingPoints) FindTwo(start int, base, tp SwingPointType) int {
+	ht := 0
+	for i := start; i < len(sps); i++ {
+		cur := sps[i]
+		if cur.BaseType == base {
+			if cur.Type == tp {
+				ht++
+			} else {
+				ht = 0
+			}
+		}
+		if ht == 2 {
+			return i
+		}
+	}
+	return -1
+}
+
 func (sps *SwingPoints) Add(timestamp string, trend SwingPointType, value, price float64) {
 	*sps = append(*sps, SwingPoint{
 		Timestamp: timestamp,
@@ -684,7 +720,7 @@ func (m *Matrix) FindSwingPoints() SwingPoints {
 			}
 			tmp = append(tmp, sp)
 		}
-		if p1.Get(2) > pc.Get(2) && p2.Get(2) > pc.Get(2) && p3.Get(2) > pc.Get(2) && p4.Get(2) > pc.Get(2) {
+		if p1.Get(2) >= pc.Get(2) && p2.Get(2) >= pc.Get(2) && p3.Get(2) >= pc.Get(2) && p4.Get(2) >= pc.Get(2) {
 			sp := SwingPoint{
 				Timestamp: pc.Key,
 				Type:      Low,

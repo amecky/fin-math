@@ -115,12 +115,19 @@ func CalculateTrendLine(prices *Matrix) int {
 				prices.DataRows[j].Set(li, ph.Value+float64(s)*m)
 			}
 		}
+
 		start := points[hc-2].Index
 		h1 := points[hc-2]
+		h2 := points[hc-1]
 		m := points.GetAngle(hc-2, hc-1)
-		for i := start; i < prices.Rows; i++ {
+		end := prices.Rows
+		for i := start; i < end; i++ {
 			s := i - start
-			prices.DataRows[i].Set(li, h1.Value+float64(s)*m)
+			if i <= points[hc-1].Index {
+				prices.DataRows[i].Set(li, h1.Value+float64(s)*m)
+			} else {
+				prices.DataRows[i].Set(li, h2.Value)
+			}
 		}
 	}
 	return li

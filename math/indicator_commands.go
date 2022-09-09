@@ -15,6 +15,7 @@ type IndicatorCmd struct {
 }
 
 var INDICATOR_COMMANDS = []*IndicatorCmd{
+	emaChannelPriceCmd,
 	closeCmd,
 	highCmd,
 	openCmd,
@@ -129,6 +130,7 @@ var INDICATOR_COMMANDS = []*IndicatorCmd{
 	stratclassificationCmd,
 	stratpmgCmd,
 	priceTwapCmd,
+	laguerreRSICmd,
 }
 
 var closeCmd = &IndicatorCmd{
@@ -200,6 +202,18 @@ var rsiCmd = &IndicatorCmd{
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return RSI(candles, days, ADJ_CLOSE)
+	},
+}
+
+var laguerreRSICmd = &IndicatorCmd{
+	Name:        "Laguerre-RSI",
+	CountParams: 1,
+	Run: func(candles *Matrix, params []string) int {
+		alpha := 0.2
+		if len(params) > 0 {
+			alpha, _ = strconv.ParseFloat(params[0], 64)
+		}
+		return LaguerreRSI(candles, alpha)
 	},
 }
 
@@ -571,6 +585,7 @@ var bollingerbandCmd = &IndicatorCmd{
 var bollingerband_price_relationCmd = &IndicatorCmd{
 	Name:        "BollingerBand_Price_Relation",
 	CountParams: 3,
+	Format:      1,
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
@@ -580,13 +595,25 @@ var bollingerband_price_relationCmd = &IndicatorCmd{
 }
 
 var esdbandCmd = &IndicatorCmd{
-	Name:        "ESDBand",
+	Name:        "EMA-Channel",
 	CountParams: 3,
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
 		lower, _ := strconv.ParseFloat(params[2], 64)
 		return ESDBand(candles, ema, upper, lower)
+	},
+}
+
+var emaChannelPriceCmd = &IndicatorCmd{
+	Name:        "EMAChannelPriceRelation",
+	CountParams: 3,
+	Format:      1,
+	Run: func(candles *Matrix, params []string) int {
+		ema, _ := strconv.Atoi(params[0])
+		upper, _ := strconv.ParseFloat(params[1], 64)
+		lower, _ := strconv.ParseFloat(params[2], 64)
+		return EMAChannelPriceRelation(candles, ema, upper, lower)
 	},
 }
 
@@ -1224,6 +1251,7 @@ var chandelierexitCmd = &IndicatorCmd{
 
 var stratclassificationCmd = &IndicatorCmd{
 	Name:        "StratClassification",
+	Format:      2,
 	CountParams: 0,
 	Run: func(candles *Matrix, params []string) int {
 		return StratClassification(candles)
