@@ -15,6 +15,8 @@ type IndicatorCmd struct {
 }
 
 var INDICATOR_COMMANDS = []*IndicatorCmd{
+	psarTrendCmd,
+	elderBarsCmd,
 	emaChannelPriceCmd,
 	closeCmd,
 	highCmd,
@@ -180,6 +182,14 @@ var emaCmd = &IndicatorCmd{
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
 		return EMA(candles, days, field)
+	},
+}
+
+var psarTrendCmd = &IndicatorCmd{
+	Name:        "PSARTrend",
+	CountParams: 0,
+	Run: func(candles *Matrix, params []string) int {
+		return PSARTrend(candles)
 	},
 }
 
@@ -1263,6 +1273,14 @@ var stratpmgCmd = &IndicatorCmd{
 	CountParams: 0,
 	Run: func(candles *Matrix, params []string) int {
 		return StratPMG(candles)
+	},
+}
+
+var elderBarsCmd = &IndicatorCmd{
+	Name:        "ElderBars",
+	CountParams: 0,
+	Run: func(candles *Matrix, params []string) int {
+		return ElderBars(candles)
 	},
 }
 

@@ -1032,6 +1032,28 @@ func BollingerBandSqueeze(m *Matrix, ema int, upper, lower float64, period int) 
 }
 
 // -----------------------------------------------------------------------
+// Elder Bars
+// -----------------------------------------------------------------------
+// https://school.stockcharts.com/doku.php?id=chart_analysis:elder_impulse_system
+func ElderBars(m *Matrix) int {
+	ret := m.AddColumn()
+	ei := EMA(m, 13, ADJ_CLOSE)
+	mi := MACD(m, 12, 26, 9)
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		p := m.DataRows[i-1]
+		if c.Get(ei) > p.Get(ei) && c.Get(mi+2) > p.Get(mi+2) {
+			m.DataRows[i].Set(ret, 1.0)
+		}
+		if c.Get(ei) < p.Get(ei) && c.Get(mi+2) < p.Get(mi+2) {
+			m.DataRows[i].Set(ret, -1.0)
+		}
+	}
+	m.RemoveColumns(4)
+	return ret
+}
+
+// -----------------------------------------------------------------------
 // BollingerBand Width
 // -----------------------------------------------------------------------
 func BollingerBandWidth(m *Matrix, ema int, upper, lower float64) int {
@@ -3484,6 +3506,15 @@ func TWAP(prices *Matrix, period int) int {
 	})
 	si := SMA(prices, period, sum)
 	prices.CopyColumn(si, ret)
+	prices.RemoveColumns(2)
+	return ret
+}
+func PSARTrend(prices *Matrix) int {
+	ret := prices.AddNamedColumn("PSAR-Trend")
+	pi := ParabolicSAR(prices)
+	prices.ApplyRow(ret, func(mr MatrixRow) float64 {
+		return (mr.Get(pi) - mr.Get(ADJ_CLOSE)) / mr.Get(ADJ_CLOSE) * 100.0
+	})
 	prices.RemoveColumns(2)
 	return ret
 }
