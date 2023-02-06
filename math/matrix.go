@@ -7,6 +7,7 @@ import (
 	m "math"
 	ma "math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -463,11 +464,14 @@ func (m *Matrix) FindMinMaxBetween(field, start, count int) (float64, float64) {
 
 func (m *Matrix) FindHighLowIndex(start, count int) (int, int) {
 	end := start + count
-	low := 100000.0
-	high := 0.0
+	if end > m.Rows {
+		end = m.Rows
+	}
+	low := m.DataRows[start].Get(2)
+	high := m.DataRows[start].Get(1)
 	hIdx := start
 	lIdx := start
-	for i := start; i < end; i++ {
+	for i := start + 1; i < end; i++ {
 		h := m.DataRows[i].Get(1)
 		if h >= high {
 			hIdx = i
@@ -602,6 +606,18 @@ func (m *Matrix) SlopePercentage(field, lookback int) int {
 	return ret
 }
 
+func (m *Matrix) Sort(field int) {
+	sort.Slice(m.DataRows, func(i, j int) bool {
+		return m.DataRows[i].Get(field) > m.DataRows[j].Get(field)
+	})
+}
+
+func (m *Matrix) SortReverse(field int) {
+	sort.Slice(m.DataRows, func(i, j int) bool {
+		return m.DataRows[i].Get(field) < m.DataRows[j].Get(field)
+	})
+}
+
 func (m *Matrix) Sample(field int, steps []float64) int {
 	ret := m.AddColumn()
 	for i := 0; i < m.Rows; i++ {
@@ -683,6 +699,34 @@ func (m *Matrix) RemoveColumns(cnt int) {
 	for i := 0; i < cnt; i++ {
 		m.RemoveColumn()
 	}
+}
+
+func (m *Matrix) OPEN(row int) float64 {
+	if row >= 0 && row < m.Rows {
+		return m.DataRows[row].Get(OPEN)
+	}
+	return 0.0
+}
+
+func (m *Matrix) HIGH(row int) float64 {
+	if row >= 0 && row < m.Rows {
+		return m.DataRows[row].Get(HIGH)
+	}
+	return 0.0
+}
+
+func (m *Matrix) LOW(row int) float64 {
+	if row >= 0 && row < m.Rows {
+		return m.DataRows[row].Get(LOW)
+	}
+	return 0.0
+}
+
+func (m *Matrix) CLOSE(row int) float64 {
+	if row >= 0 && row < m.Rows {
+		return m.DataRows[row].Get(ADJ_CLOSE)
+	}
+	return 0.0
 }
 
 func (m *Matrix) CopyColumn(source, destination int) {
@@ -888,6 +932,18 @@ func (m *Matrix) FilterByKeys(start, end string) *Matrix {
 	return ret
 }
 
+func (m *Matrix) FilterByKeysStraight(start, end string) *Matrix {
+	ret := NewMatrix(m.Cols)
+	for i := 0; i < m.Rows; i++ {
+		ts := m.DataRows[i].Key
+		if ts >= start && ts <= end {
+			ret.DataRows = append(ret.DataRows, m.DataRows[i])
+			ret.Rows++
+		}
+	}
+	return ret
+}
+
 func (m *Matrix) StdDev(field, period int) int {
 	ret := m.AddColumn()
 	avg := SMA(m, period, field)
@@ -1044,16 +1100,73 @@ func LoadMatrix(fileName string, cols int) (*Matrix, error) {
 			str := strings.TrimSpace(string(bytes))
 			if len(str) > 0 {
 				entries := strings.Split(str, ";")
-				if len(entries) == cols {
-					r := m.AddRow(entries[0])
-					for i := 0; i < cols-1; i++ {
-						open, _ := strconv.ParseFloat(entries[i+1], 64)
-						r.Set(i, open)
-					}
+				r := m.AddRow(entries[0])
+				for i := 0; i < cols; i++ {
+					open, _ := strconv.ParseFloat(entries[i+1], 64)
+					r.Set(i, open)
 				}
 				bytes = []byte{}
 			}
 		}
 	}
 	return m, nil
+}
+
+type ValueMapEntry struct {
+	Key   string
+	Value float64
+}
+type ValueMap struct {
+	data  []ValueMapEntry
+	names []string
+}
+
+func NewValueMap() *ValueMap {
+	ret := ValueMap{}
+	ret.data = make([]ValueMapEntry, 0)
+	ret.names = make([]string, 0)
+	return &ret
+}
+
+func (vm *ValueMap) Get(key string, defaultValue float64) float64 {
+	idx := vm.IndexOf(key)
+	if idx != -1 {
+		return vm.data[idx].Value
+	}
+	return defaultValue
+}
+
+func (vm *ValueMap) Set(key string, value float64) {
+	idx := vm.IndexOf(key)
+	if idx == -1 {
+		vm.data = append(vm.data, ValueMapEntry{
+			Key:   key,
+			Value: value,
+		})
+		vm.names = append(vm.names, key)
+	} else {
+		vm.data[idx].Value = value
+	}
+}
+
+func (vm *ValueMap) Keys() []string {
+	return vm.names
+}
+
+func (vm *ValueMap) Contains(key string) bool {
+	for _, k := range vm.data {
+		if k.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (vm *ValueMap) IndexOf(key string) int {
+	for i, k := range vm.data {
+		if k.Key == key {
+			return i
+		}
+	}
+	return -1
 }

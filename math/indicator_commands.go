@@ -11,10 +11,17 @@ type IndicatorCmd struct {
 	Name        string
 	CountParams int
 	Format      int
+	Renderer    IndicatorValueRenderer
 	Run         func(candles *Matrix, params []string) int
 }
 
 var INDICATOR_COMMANDS = []*IndicatorCmd{
+	trendCmd,
+	rvaCmd,
+	rsiSMACmd,
+	rangeATRCmd,
+	rsiTrendCmd,
+	tripleEMACmd,
 	psarTrendCmd,
 	elderBarsCmd,
 	emaChannelPriceCmd,
@@ -138,6 +145,7 @@ var INDICATOR_COMMANDS = []*IndicatorCmd{
 var closeCmd = &IndicatorCmd{
 	Name:        "Close",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return ADJ_CLOSE
 	},
@@ -145,6 +153,7 @@ var closeCmd = &IndicatorCmd{
 
 var highCmd = &IndicatorCmd{
 	Name:        "High",
+	Renderer:    &DefaultRenderer{},
 	CountParams: 0,
 	Run: func(candles *Matrix, params []string) int {
 		return HIGH
@@ -154,6 +163,7 @@ var highCmd = &IndicatorCmd{
 var openCmd = &IndicatorCmd{
 	Name:        "Open",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return OPEN
 	},
@@ -162,6 +172,7 @@ var openCmd = &IndicatorCmd{
 var lowCmd = &IndicatorCmd{
 	Name:        "Low",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return LOW
 	},
@@ -170,6 +181,7 @@ var lowCmd = &IndicatorCmd{
 var volumeCmd = &IndicatorCmd{
 	Name:        "Volume",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return VOLUME
 	},
@@ -178,6 +190,7 @@ var volumeCmd = &IndicatorCmd{
 var emaCmd = &IndicatorCmd{
 	Name:        "EMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -188,6 +201,7 @@ var emaCmd = &IndicatorCmd{
 var psarTrendCmd = &IndicatorCmd{
 	Name:        "PSARTrend",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return PSARTrend(candles)
 	},
@@ -197,11 +211,15 @@ var priceEMACmd = &IndicatorCmd{
 	Name:        "Price-EMA",
 	CountParams: 1,
 	Format:      1,
+	Renderer:    &PercentageRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		ti := EMA(candles, days, ADJ_CLOSE)
 		return candles.Apply(func(mr MatrixRow) float64 {
-			return ChangePercentage(mr.Get(ADJ_CLOSE), mr.Get(ti))
+			if mr.Get(ti) == 0.0 {
+				return 0.0
+			}
+			return mr.Get(ADJ_CLOSE)/mr.Get(ti) - 1.0
 		})
 	},
 }
@@ -209,15 +227,48 @@ var priceEMACmd = &IndicatorCmd{
 var rsiCmd = &IndicatorCmd{
 	Name:        "RSI",
 	CountParams: 1,
+	Renderer: &LowerUpperThresholdRenderer{
+		Upper: 70.0,
+		Lower: 30.0,
+	},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return RSI(candles, days, ADJ_CLOSE)
 	},
 }
 
+var rsiSMACmd = &IndicatorCmd{
+	Name:        "RSISMA",
+	CountParams: 2,
+	Renderer: &LowerUpperThresholdRenderer{
+		Upper: 70.0,
+		Lower: 30.0,
+	},
+	Run: func(candles *Matrix, params []string) int {
+		days, _ := strconv.Atoi(params[0])
+		smoothing, _ := strconv.Atoi(params[1])
+		return RSISMA(candles, days, smoothing, ADJ_CLOSE)
+	},
+}
+
+var rsiTrendCmd = &IndicatorCmd{
+	Name:        "RSI-Trend",
+	CountParams: 2,
+	Renderer:    &PercentageRangeRenderer{},
+	Run: func(candles *Matrix, params []string) int {
+		days, _ := strconv.Atoi(params[0])
+		sma, _ := strconv.Atoi(params[1])
+		return RSITrend(candles, days, sma, ADJ_CLOSE)
+	},
+}
+
 var laguerreRSICmd = &IndicatorCmd{
 	Name:        "Laguerre-RSI",
 	CountParams: 1,
+	Renderer: &LowerUpperThresholdRenderer{
+		Upper: 70.0,
+		Lower: 30.0,
+	},
 	Run: func(candles *Matrix, params []string) int {
 		alpha := 0.2
 		if len(params) > 0 {
@@ -230,6 +281,7 @@ var laguerreRSICmd = &IndicatorCmd{
 var stochasticCmd = &IndicatorCmd{
 	Name:        "Stochastic",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		smooth, _ := strconv.Atoi(params[1])
@@ -240,6 +292,7 @@ var stochasticCmd = &IndicatorCmd{
 var twapCmd = &IndicatorCmd{
 	Name:        "TWAP",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return TWAP(candles, days)
@@ -250,18 +303,30 @@ var priceTwapCmd = &IndicatorCmd{
 	Name:        "Price-TWAP",
 	CountParams: 1,
 	Format:      1,
+	Renderer:    &PercentageRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
-		ti := TWAP(candles, days)
-		return candles.Apply(func(mr MatrixRow) float64 {
-			return ChangePercentage(mr.Get(ADJ_CLOSE), mr.Get(ti))
-		})
+		return PriceTWAP(candles, days)
+	},
+}
+
+var tripleEMACmd = &IndicatorCmd{
+	Name:        "Triple-EMA-Trend",
+	CountParams: 3,
+	Format:      1,
+	Renderer:    &PercentageRangeRenderer{},
+	Run: func(candles *Matrix, params []string) int {
+		e1, _ := strconv.Atoi(params[0])
+		e2, _ := strconv.Atoi(params[1])
+		e3, _ := strconv.Atoi(params[2])
+		return TripleEMA(candles, e1, e2, e3)
 	},
 }
 
 var smaCmd = &IndicatorCmd{
 	Name:        "SMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -272,6 +337,7 @@ var smaCmd = &IndicatorCmd{
 var adxCmd = &IndicatorCmd{
 	Name:        "ADX",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return ADX(candles, days)
@@ -282,6 +348,7 @@ var rocCmd = &IndicatorCmd{
 	Name:        "ROC",
 	CountParams: 1,
 	Format:      1,
+	Renderer:    &PercentageRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return ROC(candles, days, ADJ_CLOSE)
@@ -291,6 +358,7 @@ var rocCmd = &IndicatorCmd{
 var swmaCmd = &IndicatorCmd{
 	Name:        "SWMA",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		field, _ := strconv.Atoi(params[0])
 		return SWMA(candles, field)
@@ -300,6 +368,7 @@ var swmaCmd = &IndicatorCmd{
 var rmaCmd = &IndicatorCmd{
 	Name:        "RMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -310,6 +379,7 @@ var rmaCmd = &IndicatorCmd{
 var wmaCmd = &IndicatorCmd{
 	Name:        "WMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -320,6 +390,7 @@ var wmaCmd = &IndicatorCmd{
 var temaCmd = &IndicatorCmd{
 	Name:        "TEMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -330,6 +401,7 @@ var temaCmd = &IndicatorCmd{
 var demaCmd = &IndicatorCmd{
 	Name:        "DEMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -340,6 +412,7 @@ var demaCmd = &IndicatorCmd{
 var zlemaCmd = &IndicatorCmd{
 	Name:        "ZLEMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -359,6 +432,7 @@ func FindIndicatorCmd(name string) bool {
 var zlsmaCmd = &IndicatorCmd{
 	Name:        "ZLSMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -369,6 +443,7 @@ var zlsmaCmd = &IndicatorCmd{
 var disparityCmd = &IndicatorCmd{
 	Name:        "Disparity",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return Disparity(candles, days)
@@ -378,6 +453,7 @@ var disparityCmd = &IndicatorCmd{
 var aoCmd = &IndicatorCmd{
 	Name:        "AO",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -388,6 +464,7 @@ var aoCmd = &IndicatorCmd{
 var accCmd = &IndicatorCmd{
 	Name:        "ACC",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -399,6 +476,7 @@ var accCmd = &IndicatorCmd{
 var macdCmd = &IndicatorCmd{
 	Name:        "MACD",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -410,6 +488,7 @@ var macdCmd = &IndicatorCmd{
 var macdzlCmd = &IndicatorCmd{
 	Name:        "MACDZL",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -421,6 +500,7 @@ var macdzlCmd = &IndicatorCmd{
 var macdextCmd = &IndicatorCmd{
 	Name:        "MACDExt",
 	CountParams: 4,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		field, _ := strconv.Atoi(params[0])
 		short, _ := strconv.Atoi(params[1])
@@ -432,16 +512,19 @@ var macdextCmd = &IndicatorCmd{
 
 var momentumCmd = &IndicatorCmd{
 	Name:        "Momentum",
-	CountParams: 1,
+	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
-		return Momentum(candles, days)
+		smoothed, _ := strconv.Atoi(params[0])
+		return Momentum(candles, days, smoothed)
 	},
 }
 
 var dpcCmd = &IndicatorCmd{
 	Name:        "DPC",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return DPC(candles)
 	},
@@ -450,6 +533,7 @@ var dpcCmd = &IndicatorCmd{
 var meanbreakoutCmd = &IndicatorCmd{
 	Name:        "MeanBreakout",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return MeanBreakout(candles, period)
@@ -459,6 +543,7 @@ var meanbreakoutCmd = &IndicatorCmd{
 var consolidatedpricedifferenceCmd = &IndicatorCmd{
 	Name:        "ConsolidatedPriceDifference",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		min, _ := strconv.Atoi(params[0])
 		return ConsolidatedPriceDifference(candles, min)
@@ -468,6 +553,7 @@ var consolidatedpricedifferenceCmd = &IndicatorCmd{
 var rsi_bbCmd = &IndicatorCmd{
 	Name:        "RSI_BB",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -478,6 +564,7 @@ var rsi_bbCmd = &IndicatorCmd{
 var rsimomentumCmd = &IndicatorCmd{
 	Name:        "RSIMomentum",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -489,6 +576,7 @@ var rsimomentumCmd = &IndicatorCmd{
 var atrCmd = &IndicatorCmd{
 	Name:        "ATR",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return ATR(candles, days)
@@ -498,6 +586,7 @@ var atrCmd = &IndicatorCmd{
 var adrCmd = &IndicatorCmd{
 	Name:        "ADR",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return ADR(candles, days)
@@ -507,15 +596,27 @@ var adrCmd = &IndicatorCmd{
 var dailyrangeCmd = &IndicatorCmd{
 	Name:        "DailyRange",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return DailyRange(candles, days)
 	},
 }
 
+var rvaCmd = &IndicatorCmd{
+	Name:        "RVA",
+	CountParams: 1,
+	Renderer:    &PercentageRangeRenderer{},
+	Run: func(candles *Matrix, params []string) int {
+		days, _ := strconv.Atoi(params[0])
+		return RVA(candles, days)
+	},
+}
+
 var tdrocCmd = &IndicatorCmd{
 	Name:        "TDROC",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -526,6 +627,7 @@ var tdrocCmd = &IndicatorCmd{
 var stochasticextCmd = &IndicatorCmd{
 	Name:        "StochasticExt",
 	CountParams: 5,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		ema, _ := strconv.Atoi(params[1])
@@ -539,6 +641,7 @@ var stochasticextCmd = &IndicatorCmd{
 var stochasticsmaCmd = &IndicatorCmd{
 	Name:        "StochasticSMA",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		sma, _ := strconv.Atoi(params[0])
 		days, _ := strconv.Atoi(params[1])
@@ -550,6 +653,7 @@ var stochasticsmaCmd = &IndicatorCmd{
 var stochasticrsiCmd = &IndicatorCmd{
 	Name:        "StochasticRSI",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		smoothK, _ := strconv.Atoi(params[1])
@@ -561,6 +665,7 @@ var stochasticrsiCmd = &IndicatorCmd{
 var rssCmd = &IndicatorCmd{
 	Name:        "RSS",
 	CountParams: 4,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		slow, _ := strconv.Atoi(params[0])
 		fast, _ := strconv.Atoi(params[1])
@@ -573,6 +678,7 @@ var rssCmd = &IndicatorCmd{
 var ppoCmd = &IndicatorCmd{
 	Name:        "PPO",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -584,6 +690,7 @@ var ppoCmd = &IndicatorCmd{
 var bollingerbandCmd = &IndicatorCmd{
 	Name:        "BollingerBand",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
@@ -596,6 +703,7 @@ var bollingerband_price_relationCmd = &IndicatorCmd{
 	Name:        "BollingerBand_Price_Relation",
 	CountParams: 3,
 	Format:      1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
@@ -607,6 +715,7 @@ var bollingerband_price_relationCmd = &IndicatorCmd{
 var esdbandCmd = &IndicatorCmd{
 	Name:        "EMA-Channel",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
@@ -619,6 +728,7 @@ var emaChannelPriceCmd = &IndicatorCmd{
 	Name:        "EMAChannelPriceRelation",
 	CountParams: 3,
 	Format:      1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
@@ -630,6 +740,7 @@ var emaChannelPriceCmd = &IndicatorCmd{
 var bollingerbandextCmd = &IndicatorCmd{
 	Name:        "BollingerBandExt",
 	CountParams: 4,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		field, _ := strconv.Atoi(params[0])
 		ema, _ := strconv.Atoi(params[1])
@@ -642,6 +753,7 @@ var bollingerbandextCmd = &IndicatorCmd{
 var bollingerbandsqueezeCmd = &IndicatorCmd{
 	Name:        "BollingerBandSqueeze",
 	CountParams: 4,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
@@ -654,6 +766,7 @@ var bollingerbandsqueezeCmd = &IndicatorCmd{
 var bollingerbandwidthCmd = &IndicatorCmd{
 	Name:        "BollingerBandWidth",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		upper, _ := strconv.ParseFloat(params[1], 64)
@@ -665,6 +778,7 @@ var bollingerbandwidthCmd = &IndicatorCmd{
 var kenvelopeCmd = &IndicatorCmd{
 	Name:        "KEnvelope",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return KEnvelope(candles, days)
@@ -674,6 +788,7 @@ var kenvelopeCmd = &IndicatorCmd{
 var keltnerCmd = &IndicatorCmd{
 	Name:        "Keltner",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		atrLength, _ := strconv.Atoi(params[1])
@@ -685,6 +800,7 @@ var keltnerCmd = &IndicatorCmd{
 var donchianchannelCmd = &IndicatorCmd{
 	Name:        "DonchianChannel",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return DonchianChannel(candles, days)
@@ -694,6 +810,7 @@ var donchianchannelCmd = &IndicatorCmd{
 var rarCmd = &IndicatorCmd{
 	Name:        "RAR",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return RAR(candles, days)
@@ -703,6 +820,7 @@ var rarCmd = &IndicatorCmd{
 var williamsrangeCmd = &IndicatorCmd{
 	Name:        "WilliamsRange",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return WilliamsRange(candles, days)
@@ -712,6 +830,7 @@ var williamsrangeCmd = &IndicatorCmd{
 var meandistanceCmd = &IndicatorCmd{
 	Name:        "MeanDistance",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		return MeanDistance(candles, lookback)
@@ -721,6 +840,7 @@ var meandistanceCmd = &IndicatorCmd{
 var perCmd = &IndicatorCmd{
 	Name:        "PER",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ema, _ := strconv.Atoi(params[0])
 		smoothing, _ := strconv.Atoi(params[1])
@@ -731,6 +851,7 @@ var perCmd = &IndicatorCmd{
 var stochasticatrCmd = &IndicatorCmd{
 	Name:        "StochasticATR",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return StochasticATR(candles, days)
@@ -740,6 +861,7 @@ var stochasticatrCmd = &IndicatorCmd{
 var relativevolumeCmd = &IndicatorCmd{
 	Name:        "RelativeVolume",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return RelativeVolume(candles, period)
@@ -749,6 +871,7 @@ var relativevolumeCmd = &IndicatorCmd{
 var averagepriceCmd = &IndicatorCmd{
 	Name:        "AveragePrice",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return AveragePrice(candles)
 	},
@@ -757,6 +880,7 @@ var averagepriceCmd = &IndicatorCmd{
 var voCmd = &IndicatorCmd{
 	Name:        "VO",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		fast, _ := strconv.Atoi(params[0])
 		slow, _ := strconv.Atoi(params[1])
@@ -767,6 +891,7 @@ var voCmd = &IndicatorCmd{
 var averagevolumeCmd = &IndicatorCmd{
 	Name:        "AverageVolume",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		return AverageVolume(candles, lookback)
@@ -776,6 +901,7 @@ var averagevolumeCmd = &IndicatorCmd{
 var ichimokuCmd = &IndicatorCmd{
 	Name:        "Ichimoku",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		mid, _ := strconv.Atoi(params[1])
@@ -784,9 +910,19 @@ var ichimokuCmd = &IndicatorCmd{
 	},
 }
 
+var trendCmd = &IndicatorCmd{
+	Name:        "Trend",
+	CountParams: 0,
+	Renderer:    &UpDownRenderer{},
+	Run: func(candles *Matrix, params []string) int {
+		return Trend(candles)
+	},
+}
+
 var weightedtrendintensityCmd = &IndicatorCmd{
 	Name:        "WeightedTrendIntensity",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return WeightedTrendIntensity(candles, period)
@@ -796,6 +932,7 @@ var weightedtrendintensityCmd = &IndicatorCmd{
 var supertrendCmd = &IndicatorCmd{
 	Name:        "Supertrend",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		multiplier, _ := strconv.ParseFloat(params[1], 64)
@@ -806,6 +943,7 @@ var supertrendCmd = &IndicatorCmd{
 var gap_atrCmd = &IndicatorCmd{
 	Name:        "GAP_ATR",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return GAP_ATR(candles)
 	},
@@ -814,6 +952,7 @@ var gap_atrCmd = &IndicatorCmd{
 var gapCmd = &IndicatorCmd{
 	Name:        "GAP",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return GAP(candles)
 	},
@@ -822,15 +961,27 @@ var gapCmd = &IndicatorCmd{
 var priceatrCmd = &IndicatorCmd{
 	Name:        "PriceATR",
 	CountParams: 1,
+	Renderer:    &PercentageRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return PriceATR(candles, period)
 	},
 }
 
+var rangeATRCmd = &IndicatorCmd{
+	Name:        "Range-ATR",
+	CountParams: 1,
+	Renderer:    &PercentageRenderer{},
+	Run: func(candles *Matrix, params []string) int {
+		period, _ := strconv.Atoi(params[0])
+		return RangeATR(candles, period)
+	},
+}
+
 var kriCmd = &IndicatorCmd{
 	Name:        "KRI",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return KRI(candles, period)
@@ -840,6 +991,7 @@ var kriCmd = &IndicatorCmd{
 var stdCmd = &IndicatorCmd{
 	Name:        "STD",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return STD(candles, days)
@@ -849,6 +1001,7 @@ var stdCmd = &IndicatorCmd{
 var stdchannelCmd = &IndicatorCmd{
 	Name:        "STDChannel",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		std, _ := strconv.ParseFloat(params[1], 64)
@@ -859,6 +1012,7 @@ var stdchannelCmd = &IndicatorCmd{
 var stdstochasticCmd = &IndicatorCmd{
 	Name:        "STDStochastic",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return STDStochastic(candles, days)
@@ -868,6 +1022,7 @@ var stdstochasticCmd = &IndicatorCmd{
 var demarkCmd = &IndicatorCmd{
 	Name:        "DeMark",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return DeMark(candles)
 	},
@@ -876,6 +1031,7 @@ var demarkCmd = &IndicatorCmd{
 var demarkerCmd = &IndicatorCmd{
 	Name:        "DeMarker",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return DeMarker(candles, days)
@@ -885,6 +1041,7 @@ var demarkerCmd = &IndicatorCmd{
 var bullishbearishCmd = &IndicatorCmd{
 	Name:        "BullishBearish",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return BullishBearish(candles, period)
@@ -894,6 +1051,7 @@ var bullishbearishCmd = &IndicatorCmd{
 var obvCmd = &IndicatorCmd{
 	Name:        "OBV",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		scale, _ := strconv.ParseFloat(params[0], 64)
 		return OBV(candles, scale)
@@ -903,6 +1061,7 @@ var obvCmd = &IndicatorCmd{
 var aroonCmd = &IndicatorCmd{
 	Name:        "Aroon",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return Aroon(candles, days)
@@ -912,6 +1071,7 @@ var aroonCmd = &IndicatorCmd{
 var trendintensityCmd = &IndicatorCmd{
 	Name:        "TrendIntensity",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return TrendIntensity(candles, days)
@@ -921,6 +1081,7 @@ var trendintensityCmd = &IndicatorCmd{
 var adCmd = &IndicatorCmd{
 	Name:        "AD",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return AD(candles)
 	},
@@ -929,6 +1090,7 @@ var adCmd = &IndicatorCmd{
 var tsiCmd = &IndicatorCmd{
 	Name:        "TSI",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -940,6 +1102,7 @@ var tsiCmd = &IndicatorCmd{
 var divergenceCmd = &IndicatorCmd{
 	Name:        "Divergence",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		first, _ := strconv.Atoi(params[0])
 		second, _ := strconv.Atoi(params[1])
@@ -951,6 +1114,7 @@ var divergenceCmd = &IndicatorCmd{
 var highlowchannelCmd = &IndicatorCmd{
 	Name:        "HighLowChannel",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		highPeriod, _ := strconv.Atoi(params[0])
 		lowPeriod, _ := strconv.Atoi(params[1])
@@ -961,6 +1125,7 @@ var highlowchannelCmd = &IndicatorCmd{
 var highlowemachannelCmd = &IndicatorCmd{
 	Name:        "HighLowEMAChannel",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		highPeriod, _ := strconv.Atoi(params[0])
 		lowPeriod, _ := strconv.Atoi(params[0])
@@ -971,6 +1136,7 @@ var highlowemachannelCmd = &IndicatorCmd{
 var highestlowestchannelCmd = &IndicatorCmd{
 	Name:        "HighestLowestChannel",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return HighestLowestChannel(candles, period)
@@ -980,6 +1146,7 @@ var highestlowestchannelCmd = &IndicatorCmd{
 var rviCmd = &IndicatorCmd{
 	Name:        "RVI",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		signal, _ := strconv.Atoi(params[1])
@@ -990,6 +1157,7 @@ var rviCmd = &IndicatorCmd{
 var rvistochasticCmd = &IndicatorCmd{
 	Name:        "RVIStochastic",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		signal, _ := strconv.Atoi(params[1])
@@ -1000,6 +1168,7 @@ var rvistochasticCmd = &IndicatorCmd{
 var kdCmd = &IndicatorCmd{
 	Name:        "KD",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return KD(candles, period)
@@ -1009,6 +1178,7 @@ var kdCmd = &IndicatorCmd{
 var dpoCmd = &IndicatorCmd{
 	Name:        "DPO",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return DPO(candles, period)
@@ -1018,6 +1188,7 @@ var dpoCmd = &IndicatorCmd{
 var mfiCmd = &IndicatorCmd{
 	Name:        "MFI",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return MFI(candles, days)
@@ -1027,6 +1198,7 @@ var mfiCmd = &IndicatorCmd{
 var cciCmd = &IndicatorCmd{
 	Name:        "CCI",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		smoothed, _ := strconv.Atoi(params[1])
@@ -1037,6 +1209,7 @@ var cciCmd = &IndicatorCmd{
 var doscCmd = &IndicatorCmd{
 	Name:        "DOSC",
 	CountParams: 5,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		r, _ := strconv.Atoi(params[0])
 		e1, _ := strconv.Atoi(params[1])
@@ -1050,6 +1223,7 @@ var doscCmd = &IndicatorCmd{
 var hmaCmd = &IndicatorCmd{
 	Name:        "HMA",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -1060,6 +1234,7 @@ var hmaCmd = &IndicatorCmd{
 var cogCmd = &IndicatorCmd{
 	Name:        "COG",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return COG(candles, period)
@@ -1069,6 +1244,7 @@ var cogCmd = &IndicatorCmd{
 var griCmd = &IndicatorCmd{
 	Name:        "GRI",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return GRI(candles, period)
@@ -1078,6 +1254,7 @@ var griCmd = &IndicatorCmd{
 var cmfCmd = &IndicatorCmd{
 	Name:        "CMF",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		return CMF(candles, period)
@@ -1087,6 +1264,7 @@ var cmfCmd = &IndicatorCmd{
 var stcCmd = &IndicatorCmd{
 	Name:        "STC",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
@@ -1098,6 +1276,7 @@ var stcCmd = &IndicatorCmd{
 var choppinessCmd = &IndicatorCmd{
 	Name:        "Choppiness",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
 		return Choppiness(candles, days)
@@ -1107,6 +1286,7 @@ var choppinessCmd = &IndicatorCmd{
 var spreadCmd = &IndicatorCmd{
 	Name:        "Spread",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		return Spread(candles, lookback)
@@ -1116,6 +1296,7 @@ var spreadCmd = &IndicatorCmd{
 var gmmaCmd = &IndicatorCmd{
 	Name:        "GMMA",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return GMMA(candles)
 	},
@@ -1124,6 +1305,7 @@ var gmmaCmd = &IndicatorCmd{
 var volatilityCmd = &IndicatorCmd{
 	Name:        "Volatility",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -1134,6 +1316,7 @@ var volatilityCmd = &IndicatorCmd{
 var trixCmd = &IndicatorCmd{
 	Name:        "TRIX",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		return TRIX(candles, lookback)
@@ -1143,15 +1326,20 @@ var trixCmd = &IndicatorCmd{
 var squeezemomentumCmd = &IndicatorCmd{
 	Name:        "SqueezeMomentum",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
-		return SqueezeMomentum(candles, lookback)
+		std, _ := strconv.ParseFloat(params[1], 64)
+		keltner, _ := strconv.Atoi(params[2])
+		mulKC, _ := strconv.ParseFloat(params[3], 64)
+		return SqueezeMomentum(candles, lookback, std, keltner, mulKC)
 	},
 }
 
 var spreadrangerelationCmd = &IndicatorCmd{
 	Name:        "SpreadRangeRelation",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		return SpreadRangeRelation(candles, lookback)
@@ -1161,6 +1349,7 @@ var spreadrangerelationCmd = &IndicatorCmd{
 var historicalvolatilityCmd = &IndicatorCmd{
 	Name:        "HistoricalVolatility",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		return HistoricalVolatility(candles, lookback)
@@ -1170,6 +1359,7 @@ var historicalvolatilityCmd = &IndicatorCmd{
 var minerviniscoreCmd = &IndicatorCmd{
 	Name:        "MinerviniScore",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return MinerviniScore(candles)
 	},
@@ -1178,6 +1368,7 @@ var minerviniscoreCmd = &IndicatorCmd{
 var percentrankCmd = &IndicatorCmd{
 	Name:        "PercentRank",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		field, _ := strconv.Atoi(params[1])
@@ -1188,6 +1379,7 @@ var percentrankCmd = &IndicatorCmd{
 var tsvCmd = &IndicatorCmd{
 	Name:        "TSV",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return TSV(candles)
 	},
@@ -1196,6 +1388,7 @@ var tsvCmd = &IndicatorCmd{
 var laguerrefilterCmd = &IndicatorCmd{
 	Name:        "LaguerreFilter",
 	CountParams: 1,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		gamma, _ := strconv.ParseFloat(params[0], 64)
 		return LaguerreFilter(candles, gamma)
@@ -1205,6 +1398,7 @@ var laguerrefilterCmd = &IndicatorCmd{
 var apzCmd = &IndicatorCmd{
 	Name:        "APZ",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		dev, _ := strconv.ParseFloat(params[1], 64)
@@ -1215,6 +1409,7 @@ var apzCmd = &IndicatorCmd{
 var almaCmd = &IndicatorCmd{
 	Name:        "ALMA",
 	CountParams: 3,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		windowSize, _ := strconv.Atoi(params[0])
 		offset, _ := strconv.ParseFloat(params[1], 64)
@@ -1226,6 +1421,7 @@ var almaCmd = &IndicatorCmd{
 var radCmd = &IndicatorCmd{
 	Name:        "RAD",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		ma, _ := strconv.Atoi(params[0])
 		period, _ := strconv.Atoi(params[1])
@@ -1236,6 +1432,7 @@ var radCmd = &IndicatorCmd{
 var vptCmd = &IndicatorCmd{
 	Name:        "VPT",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return VPT(candles)
 	},
@@ -1244,6 +1441,7 @@ var vptCmd = &IndicatorCmd{
 var parabolicsarCmd = &IndicatorCmd{
 	Name:        "ParabolicSAR",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return ParabolicSAR(candles)
 	},
@@ -1252,6 +1450,7 @@ var parabolicsarCmd = &IndicatorCmd{
 var chandelierexitCmd = &IndicatorCmd{
 	Name:        "ChandelierExit",
 	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		period, _ := strconv.Atoi(params[0])
 		multiplier, _ := strconv.ParseFloat(params[1], 64)
@@ -1263,14 +1462,28 @@ var stratclassificationCmd = &IndicatorCmd{
 	Name:        "StratClassification",
 	Format:      2,
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return StratClassification(candles)
+	},
+}
+
+var andeanCmd = &IndicatorCmd{
+	Name:        "Andean",
+	Format:      2,
+	CountParams: 2,
+	Renderer:    &DefaultRenderer{},
+	Run: func(candles *Matrix, params []string) int {
+		period, _ := strconv.Atoi(params[0])
+		sig, _ := strconv.Atoi(params[1])
+		return Andean(candles, period, sig)
 	},
 }
 
 var stratpmgCmd = &IndicatorCmd{
 	Name:        "StratPMG",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return StratPMG(candles)
 	},
@@ -1279,6 +1492,7 @@ var stratpmgCmd = &IndicatorCmd{
 var elderBarsCmd = &IndicatorCmd{
 	Name:        "ElderBars",
 	CountParams: 0,
+	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		return ElderBars(candles)
 	},
@@ -1298,11 +1512,67 @@ func RunIndicatorCmd(name string, candles *Matrix, params string) (int, error) {
 	return -1, errors.New("No matching indicator found: " + name)
 }
 
-func GetIndicatorCmd(name string) *IndicatorCmd {
+type IndicatorDesc struct {
+	Command string
+	Params  string
+	Offset  int
+}
+
+func ConvertIndicatorCommand(cmd string) IndicatorDesc {
+	ret := IndicatorDesc{
+		Command: cmd,
+	}
+	pf := false
+	if strings.Index(cmd, "(") != -1 {
+		ret.Params = cmd[strings.Index(cmd, "(")+1:]
+		ret.Params = ret.Params[0:strings.Index(ret.Params, ")")]
+		ret.Command = cmd[0:strings.Index(cmd, "(")]
+		pf = true
+	}
+	if strings.Index(cmd, "[") != -1 {
+		os := cmd[strings.Index(cmd, "[")+1:]
+		os = os[0:strings.Index(os, "]")]
+		ret.Offset, _ = strconv.Atoi(os)
+		if !pf {
+			ret.Command = cmd[0:strings.Index(cmd, "[")]
+		}
+	}
+	return ret
+}
+
+func RunIndicator(cmd string, candles *Matrix) (int, error) {
+	params := ""
+	command := cmd
+	pf := false
+	if strings.Index(cmd, "(") != -1 {
+		params = cmd[strings.Index(cmd, "(")+1:]
+		params = params[0:strings.Index(params, ")")]
+		command = cmd[0:strings.Index(cmd, "(")]
+		pf = true
+	}
+	offset := 0
+	if strings.Index(cmd, "[") != -1 {
+		os := cmd[strings.Index(cmd, "[")+1:]
+		os = os[0:strings.Index(os, "]")]
+		offset, _ = strconv.Atoi(os)
+		if !pf {
+			command = cmd[0:strings.Index(cmd, "[")]
+		}
+	}
+	idx, err := RunIndicatorCmd(command, candles, params)
+	if err != nil {
+		return -1, err
+	}
+	return idx + offset, nil
+}
+
+func GetIndicatorCmd(cmd string) *IndicatorCmd {
+	desc := ConvertIndicatorCommand(cmd)
 	for _, ic := range INDICATOR_COMMANDS {
-		if ic.Name == name {
+		if ic.Name == desc.Command {
 			return ic
 		}
 	}
+	fmt.Println("NO IND CMD found")
 	return nil
 }
