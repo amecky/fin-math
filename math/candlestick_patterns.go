@@ -109,7 +109,13 @@ func FindCandleStickPatterns(prices *Matrix) int {
 	e1 := MASlope(prices, EMA, 20, 1)
 	// 0 = BodySize 1 = BodyPos 2 = Mid 3 = RelBodySize 4 = RelAvg 5 = Upper 6 = Lower 7 = Trend 8 = Spread 9 = RelSpread
 	ci := Candles(prices, 21)
-
+	const (
+		MID           = 2
+		REL_BODY_SIZE = 3
+		UPPER         = 5
+		LOWER         = 6
+		TREND         = 7
+	)
 	//
 	// Single Bar patterns
 	//
@@ -122,7 +128,7 @@ func FindCandleStickPatterns(prices *Matrix) int {
 			prices.DataRows[i].Set(ret, 1.0)
 		}
 		// DOJI
-		if first.Get(ci+3) < 1.0 {
+		if first.Get(ci+REL_BODY_SIZE) < 10.0 {
 			prices.DataRows[i].Set(ret, 9.0)
 		}
 		// Shooting star
@@ -131,20 +137,20 @@ func FindCandleStickPatterns(prices *Matrix) int {
 			prices.DataRows[i].Set(ret, 2.0)
 		}
 		// Bullish Marubozu
-		if first.Get(ci+7) == BULLISH && first.Get(ci+5) < 1.0 && first.Get(ci+6) < 1.0 {
+		if first.Get(ci+TREND) == BULLISH && first.Get(ci+UPPER) < 1.0 && first.Get(ci+LOWER) < 1.0 {
 			prices.DataRows[i].Set(ret, 12.0)
 		}
 		// Bearish Marubozu
-		if first.Get(ci+7) == BEARISH && first.Get(ci+5) < 1.0 && first.Get(ci+6) < 1.0 {
+		if first.Get(ci+TREND) == BEARISH && first.Get(ci+UPPER) < 1.0 && first.Get(ci+LOWER) < 1.0 {
 			prices.DataRows[i].Set(ret, 13.0)
 		}
 
 		// Hanging Man
-		if first.Get(ci+7) == BEARISH && first.Get(ci+6) >= 66.0 {
+		if first.Get(ci+TREND) == BEARISH && first.Get(ci+LOWER) >= 66.0 {
 			prices.DataRows[i].Set(ret, 11.0)
 		}
 		// Inverted Hammer
-		if first.Get(ci+7) == BULLISH && first.Get(ci+5) >= 66.0 {
+		if first.Get(ci+TREND) == BULLISH && first.Get(ci+UPPER) >= 66.0 {
 			prices.DataRows[i].Set(ret, 10.0)
 		}
 
@@ -193,11 +199,11 @@ func FindCandleStickPatterns(prices *Matrix) int {
 			prices.DataRows[i].Set(ret, 8.0)
 		}
 		// Piercing line
-		if first.Get(ci+7) == BEARISH && second.Get(ci+7) == BULLISH && first.Get(2) > second.Get(OPEN) && first.Get(ci+2) < second.Get(ADJ_CLOSE) {
+		if first.Get(ci+TREND) == BEARISH && second.Get(ci+TREND) == BULLISH && first.Get(ADJ_CLOSE) < second.Get(OPEN) && first.Get(ci+MID) < second.Get(ADJ_CLOSE) {
 			prices.DataRows[i].Set(ret, 14.0)
 		}
 		// Dark Cloud Cover
-		if first.Get(ci+7) == BULLISH && second.Get(ci+7) == BEARISH && first.Get(HIGH) < second.Get(OPEN) && first.Get(ci+2) > second.Get(ADJ_CLOSE) {
+		if first.Get(ci+TREND) == BULLISH && second.Get(ci+TREND) == BEARISH && first.Get(ADJ_CLOSE) < second.Get(OPEN) && first.Get(ci+MID) > second.Get(ADJ_CLOSE) {
 			prices.DataRows[i].Set(ret, 15.0)
 		}
 

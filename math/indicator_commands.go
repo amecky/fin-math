@@ -652,13 +652,14 @@ var stochasticsmaCmd = &IndicatorCmd{
 
 var stochasticrsiCmd = &IndicatorCmd{
 	Name:        "StochasticRSI",
-	CountParams: 3,
+	CountParams: 4,
 	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		days, _ := strconv.Atoi(params[0])
-		smoothK, _ := strconv.Atoi(params[1])
-		smoothD, _ := strconv.Atoi(params[2])
-		return StochasticRSI(candles, days, smoothK, smoothD)
+		stoch, _ := strconv.Atoi(params[1])
+		smoothK, _ := strconv.Atoi(params[2])
+		smoothD, _ := strconv.Atoi(params[3])
+		return StochasticRSI(candles, days, stoch, smoothK, smoothD)
 	},
 }
 

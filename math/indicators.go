@@ -141,6 +141,46 @@ func HLC3(m *Matrix) int {
 	return ret
 }
 
+func AVG(m *Matrix, fields ...int) int {
+	ret := m.AddNamedColumn("AVG")
+	for i := 0; i < m.Rows; i++ {
+		sum := 0.0
+		for _, f := range fields {
+			sum += m.DataRows[i].Get(f)
+		}
+		m.DataRows[i].Set(i, sum)
+	}
+	return ret
+}
+
+func Lowest(m *Matrix, period, field int) int {
+	ret := m.AddNamedColumn("Lowest")
+	for i := period; i < m.Rows; i++ {
+		l := m.DataRows[i].Get(field)
+		for j := 1; j < period; j++ {
+			if m.DataRows[i-j].Get(field) < l {
+				l = m.DataRows[i-j].Get(field)
+			}
+		}
+		m.DataRows[i].Set(i, l)
+	}
+	return ret
+}
+
+func Highest(m *Matrix, period, field int) int {
+	ret := m.AddNamedColumn("Highest")
+	for i := period; i < m.Rows; i++ {
+		h := m.DataRows[i].Get(field)
+		for j := 1; j < period; j++ {
+			if m.DataRows[i-j].Get(field) > h {
+				h = m.DataRows[i-j].Get(field)
+			}
+		}
+		m.DataRows[i].Set(i, h)
+	}
+	return ret
+}
+
 // -----------------------------------------------------------------------
 // SMA - Simple moving average
 // -----------------------------------------------------------------------
@@ -396,10 +436,7 @@ func AO(m *Matrix, short, long int) int {
 	// 0 = AO 1 = Color
 	ao := m.AddColumn()
 	clr := m.AddColumn()
-	mid := m.AddColumn()
-	for i := 0; i < m.Rows; i++ {
-		m.DataRows[i].Set(mid, (m.DataRows[i].Get(HIGH)+m.DataRows[i].Get(2))/2.0)
-	}
+	mid := HL2(m)
 	sma5 := SMA(m, short, mid)
 	sma34 := SMA(m, long, mid)
 	// AO = sma((high+low)/2, LängeAO1) - sma((high+low)/2, LängeAO2)
@@ -418,6 +455,21 @@ func AO(m *Matrix, short, long int) int {
 	m.RemoveColumn()
 	m.RemoveColumn()
 	return ao
+}
+
+// -----------------------------------------------------------------------
+// Linear Regression Line
+// -----------------------------------------------------------------------
+func LinearRegression(m *Matrix, period int) int {
+	// 0 = M 1 = C
+	lr := m.AddColumn()
+	ci := m.AddColumn()
+	for i := period; i < m.Rows; i++ {
+		s, c := SimpleLinearRegression(m, i-period, i, 4)
+		m.DataRows[i].Set(lr, s)
+		m.DataRows[i].Set(ci, c)
+	}
+	return lr
 }
 
 // -----------------------------------------------------------------------
@@ -554,7 +606,22 @@ func Momentum(m *Matrix, days, smoothed int) int {
 		m.DataRows[i].Set(ret, (m.DataRows[i].Get(ADJ_CLOSE) - m.DataRows[i-days].Get(ADJ_CLOSE)))
 		m.DataRows[i].Set(per, (m.DataRows[i].Get(ADJ_CLOSE)-m.DataRows[i-days].Get(ADJ_CLOSE))/m.DataRows[i-days].Get(ADJ_CLOSE)*100.0)
 	}
-	EMA(m, ret, smoothed)
+	EMA(m, smoothed, ret)
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//  MomentumExt
+// -----------------------------------------------------------------------
+func MomentumExt(m *Matrix, days, smoothed, field int) int {
+	// 0 = Momentum 1 = Momentum Percentage 2 = EMA Momentum
+	ret := m.AddNamedColumn("Momentum")
+	per := m.AddNamedColumn("Momentum-Pct")
+	for i := days; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, (m.DataRows[i].Get(field) - m.DataRows[i-days].Get(field)))
+		m.DataRows[i].Set(per, (m.DataRows[i].Get(field)-m.DataRows[i-days].Get(field))/m.DataRows[i-days].Get(field)*100.0)
+	}
+	EMA(m, smoothed, ret)
 	return ret
 }
 
@@ -650,6 +717,40 @@ func RSI(m *Matrix, days, field int) int {
 	})
 	up := RMA(m, days, cgi)
 	down := RMA(m, days, cli)
+
+	for i := 0; i < m.Rows; i++ {
+		rsi := 0.0
+		if m.DataRows[i].Get(down) == 0.0 {
+			rsi = 100.0
+		} else if m.DataRows[i].Get(up) == 0.0 {
+			rsi = 0.0
+		} else {
+			rsi = 100.0 - (100.0 / (1.0 + m.DataRows[i].Get(up)/m.DataRows[i].Get(down)))
+		}
+		m.DataRows[i].Set(ret, rsi)
+	}
+	m.RemoveColumns(5)
+	return ret
+}
+
+func ModifiedRSI(m *Matrix, days, field int) int {
+	// 0 = RSI
+	ret := m.AddNamedColumn("MRSI")
+	diff := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		m.DataRows[i].Set(diff, m.DataRows[i].Get(field)-m.DataRows[i-1].Get(field))
+	}
+	//up = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+	//down = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+	//rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+	cgi := m.Apply(func(mr MatrixRow) float64 {
+		return math.Max(mr.Get(diff), 0.0)
+	})
+	cli := m.Apply(func(mr MatrixRow) float64 {
+		return -1.0 * math.Min(mr.Get(diff), 0.0)
+	})
+	up := SMA(m, days, cgi)
+	down := SMA(m, days, cli)
 
 	for i := 0; i < m.Rows; i++ {
 		rsi := 0.0
@@ -872,7 +973,7 @@ func ROC(m *Matrix, days, field int) int {
 			prev := m.DataRows[i-days].Get(field)
 			v := 0.0
 			if prev != 0.0 {
-				v = (current - prev) / prev
+				v = (current - prev) / prev * 100.0
 			}
 			m.DataRows[i].Set(ret, v)
 			m.DataRows[i].Set(di, current-prev)
@@ -990,12 +1091,12 @@ rsi1 = rsi(src, lengthRSI)
 k = sma(stoch(rsi1, rsi1, rsi1, lengthStoch), smoothK)
 d = sma(k, smoothD)
 */
-func StochasticRSI(m *Matrix, days, smoothK, smoothD int) int {
+func StochasticRSI(m *Matrix, rsi, stoch, smoothK, smoothD int) int {
 	// 0 = K 1 = D
 	ki := m.AddColumn()
 	di := m.AddColumn()
-	rsi := RSI(m, days, 4)
-	sr := StochasticExt(m, 14, 3, rsi, rsi, rsi)
+	ri := RSI(m, rsi, 4)
+	sr := StochasticExt(m, stoch, smoothK, ri, ri, ri)
 	k := SMA(m, smoothK, sr)
 	d := SMA(m, smoothD, k)
 	for i := 0; i < m.Rows; i++ {
@@ -1262,6 +1363,24 @@ func BollingerBandWidth(m *Matrix, ema int, upper, lower float64) int {
 		cb := m.DataRows[i]
 		if cb.Get(bb+2) != 0.0 {
 			m.DataRows[i].Set(ret, (cb.Get(bb)-cb.Get(bb+1))/cb.Get(bb+2))
+		}
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// BollingerBand Width
+// -----------------------------------------------------------------------
+func BollingerBandPercentage(m *Matrix, ema int, upper, lower float64) int {
+	ret := m.AddColumn()
+	bb := BollingerBand(m, ema, upper, lower)
+	for i := 0; i < m.Rows; i++ {
+		cb := m.DataRows[i]
+		if cb.Get(bb+2) != 0.0 {
+			m.DataRows[i].Set(ret, (cb.Get(4)-cb.Get(bb+1))/(cb.Get(bb)-cb.Get(bb+1)))
 		}
 	}
 	m.RemoveColumn()
@@ -1630,33 +1749,42 @@ func AverageVolume(m *Matrix, lookback int) int {
 // -----------------------------------------------------------------------
 // https://www.investopedia.com/terms/i/ichimoku-cloud.asp
 func Ichimoku(m *Matrix, short, mid, long int) int {
-	// 0 = Conversion line 1 = Base Line 2 = Leading Span A 3 = Leading Span B 4 = Lagging Span
-	ret := m.AddColumn()
-	midIdx := m.AddColumn()
+	// 0 = Conversion line (Tenkan) 1 = Base Line (Kijun) 2 = Leading Span A 3 = Leading Span B 4 = Lagging Span (Chikou)
+	ret := m.AddNamedColumn("Tenkan")
+	midIdx := m.AddNamedColumn("Kijun")
 	lsaIdx := m.AddColumn()
 	lsbIdx := m.AddColumn()
-	lsIdx := m.AddColumn()
+	lsIdx := m.AddNamedColumn("Chikou")
+	// Tenkan
 	for i := short; i < m.Rows; i++ {
 		low := m.FindMinBetween(2, i-short, short)
 		high := m.FindMaxBetween(1, i-short, short)
 		m.DataRows[i].Set(ret, (high+low)/2.0)
 	}
+	// Kijun
 	for i := mid; i < m.Rows; i++ {
 		low := m.FindMinBetween(2, i-mid, mid)
 		high := m.FindMaxBetween(1, i-mid, mid)
 		m.DataRows[i].Set(midIdx, (high+low)/2.0)
 	}
-	for i := mid; i < m.Rows; i++ {
+
+	for i := 0; i < m.Rows; i++ {
 		m.DataRows[i].Set(lsaIdx, (m.DataRows[i].Get(ret)+m.DataRows[i].Get(midIdx))/2.0)
 	}
+	m.Shift(lsaIdx, 26)
+
 	for i := long; i < m.Rows; i++ {
 		low := m.FindMinBetween(2, i-long, long)
 		high := m.FindMaxBetween(1, i-long, long)
 		m.DataRows[i].Set(lsbIdx, (high+low)/2.0)
 	}
-	for i := mid; i < m.Rows; i++ {
-		m.DataRows[i].Set(lsIdx, m.DataRows[i-mid].Get(ADJ_CLOSE))
-	}
+	m.Shift(lsbIdx, 26)
+	// Chikou - shift price 26 periods back
+	m.CopyColumn(4, lsIdx)
+	m.Shift(lsIdx, -26)
+	//for i := 0; i < m.Rows-mid; i++ {
+	//	m.DataRows[i].Set(lsIdx, m.DataRows[i+mid].Get(ADJ_CLOSE))
+	//}
 	return ret
 }
 
@@ -3637,6 +3765,7 @@ func RAD(prices *Matrix, ma, period int) int {
 	di := prices.Apply(func(r MatrixRow) float64 {
 		return r.Get(ADJ_CLOSE) - r.Get(si)
 	})
+	//ri := StochasticExt(prices, period, period/2, di, di, di)
 	ri := RSI(prices, period, di)
 	prices.CopyColumn(ri, ret)
 	prices.RemoveColumns(3)
@@ -4677,3 +4806,71 @@ plot(ema(ZeroLagMACD,MacdEmaLength) , color=red, transp=0, linewidth=2, title='E
 ribbonDiff2 = hist > 0 ? green : purple
 plot(showDots and cross(ZeroLagMACD, signal) ? circleYPosition : na,style=circles, linewidth=4, color=ribbonDiff2, title='Dots')
 */
+// -----------------------------------------------------------------------
+// SSLChannel
+// -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/a/atr.asp
+func SSLChannel(m *Matrix, period int) int {
+	// 0 = SSL Down 1 = SSL Up
+	ret := m.AddNamedColumn("SSL Down")
+	upi := m.AddNamedColumn("SSL Up")
+	hlv := m.AddColumn()
+	sh := SMA(m, period, 1)
+	sl := SMA(m, period, 2)
+	for i := 1; i < m.Rows; i++ {
+		if m.DataRows[i].Get(4) > m.DataRows[i].Get(sh) {
+			m.DataRows[i].Set(hlv, 1.0)
+		} else if m.DataRows[i].Get(4) < m.DataRows[i].Get(sl) {
+			m.DataRows[i].Set(hlv, -1.0)
+		} else {
+			m.DataRows[i].Set(hlv, m.DataRows[i].Get(hlv))
+		}
+
+	}
+	for i := 1; i < m.Rows; i++ {
+		if m.DataRows[i].Get(hlv) < 0.0 {
+			m.DataRows[i].Set(ret, m.DataRows[i].Get(sh))
+			m.DataRows[i].Set(upi, m.DataRows[i].Get(sl))
+		} else {
+			m.DataRows[i].Set(ret, m.DataRows[i].Get(sl))
+			m.DataRows[i].Set(upi, m.DataRows[i].Get(sh))
+		}
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// Waddah Attar Explosion
+// -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/a/atr.asp
+func WAE(m *Matrix, sensitivity, fast, slow, length int, multiplier float64) int {
+	// 0 = Trend Up 1 = Trend Down 2 = Explosion line
+	ret := m.AddNamedColumn("TrendUp")
+	dwi := m.AddNamedColumn("TrendDown")
+	upi := m.AddNamedColumn("ExplosionLine")
+	t1 := m.AddColumn()
+	e1 := EMA(m, fast, 4)
+	e2 := EMA(m, slow, 4)
+	di := m.Apply(func(mr MatrixRow) float64 {
+		return mr.Get(e1) - mr.Get(e2)
+	})
+	sens := float64(sensitivity)
+	bb := BollingerBand(m, length, multiplier, multiplier)
+	for i := 1; i < m.Rows; i++ {
+		m.DataRows[i].Set(t1, (m.DataRows[i].Get(di)-m.DataRows[i-1].Get(di))*sens)
+	}
+	m.ApplyRow(upi, func(mr MatrixRow) float64 {
+		return mr.Get(bb) - mr.Get(bb+1)
+	})
+	for i := 0; i < m.Rows; i++ {
+		t := m.DataRows[i].Get(t1)
+		if t >= 0.0 {
+			m.DataRows[i].Set(ret, t)
+		}
+		if t < 0.0 {
+			m.DataRows[i].Set(dwi, t*-1.0)
+		}
+	}
+	m.RemoveColumns(6)
+	return ret
+}

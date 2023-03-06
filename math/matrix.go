@@ -21,6 +21,10 @@ const (
 	VOLUME    int = 5
 )
 
+type DateIndex struct {
+	Date  string
+	Index int
+}
 type MajorLevel struct {
 	Value float64
 	Count int
@@ -229,6 +233,28 @@ func NewMatrixWithHeaders(cols int, headers []string) *Matrix {
 		m.Cols++
 	}
 	return &m
+}
+
+func (m *Matrix) ExtractDates() []DateIndex {
+	ret := make([]DateIndex, 0)
+	mapping := make(map[string]int)
+	for i := 0; i < m.Rows; i++ {
+		dt := m.DataRows[i].Key
+		dt = dt[0:strings.Index(dt, " ")]
+		if _, ok := mapping[dt]; !ok {
+			mapping[dt] = i
+		}
+	}
+	for v, k := range mapping {
+		ret = append(ret, DateIndex{
+			Date:  v,
+			Index: k,
+		})
+	}
+	sort.Slice(ret, func(i, j int) bool {
+		return ret[i].Date < ret[j].Date
+	})
+	return ret
 }
 
 func (m *Matrix) AddRow(key string) *MatrixRow {
@@ -512,6 +538,27 @@ func (m *Matrix) FindHighestHighLowestLow(start, count int) (float64, float64) {
 	return high, low
 }
 
+func (m *Matrix) Shift(field, period int) {
+	if period > 0 {
+		for i := m.Rows - 1; i >= period; i-- {
+			idx := i - period
+			m.DataRows[i].Set(field, m.DataRows[idx].Get(field))
+		}
+		for i := 0; i < period; i++ {
+			m.DataRows[i].Set(field, 0.0)
+		}
+	} else if period < 0 {
+		period *= -1
+		for i := period; i < m.Rows; i++ {
+			idx := i - period
+			m.DataRows[idx].Set(field, m.DataRows[i].Get(field))
+		}
+		for i := m.Rows - period; i < m.Rows; i++ {
+			m.DataRows[i].Set(field, 0.0)
+		}
+	}
+}
+
 func (m *Matrix) FindMinBetween(field, start, count int) float64 {
 	if start >= m.Rows {
 		start = m.Rows - 1
@@ -546,6 +593,42 @@ func (m *Matrix) FindMaxBetween(field, start, count int) float64 {
 		}
 	}
 	return max
+}
+
+func (m *Matrix) CrossUp(first, second, index int) bool {
+	if index > 0 {
+		f := m.DataRows[index-1]
+		s := m.DataRows[index]
+		if f.Get(first) < f.Get(second) && s.Get(first) > s.Get(second) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Matrix) CrossDown(first, second, index int) bool {
+	if index > 0 {
+		f := m.DataRows[index-1]
+		s := m.DataRows[index]
+		if f.Get(first) > f.Get(second) && s.Get(first) < s.Get(second) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Matrix) CrossOver(first, second, index int) int {
+	if index > 0 {
+		f := m.DataRows[index-1]
+		s := m.DataRows[index]
+		if f.Get(first) > f.Get(second) && s.Get(first) < s.Get(second) {
+			return -1
+		}
+		if f.Get(first) > f.Get(second) && s.Get(first) < s.Get(second) {
+			return 1
+		}
+	}
+	return 0
 }
 
 func (m *Matrix) Stochastic(days int, field int) int {
