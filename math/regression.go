@@ -36,3 +36,30 @@ func SimpleLinearRegression(m *Matrix, start, end, field int) (float64, float64)
 	m.RemoveColumns(5)
 	return rm, rc
 }
+
+func LinearRegressionLSE(m *Matrix, start, end, field int) (float64, float64) {
+	q := end - start
+	if q == 0 {
+		return 0.0, 0.0
+	}
+	p := float64(q)
+	sum_x, sum_y, sum_xx, sum_xy := 0.0, 0.0, 0.0, 0.0
+	pX := 1.0
+	for i := start; i < end; i++ {
+		p := m.DataRows[i]
+		sum_x += pX
+		sum_y += p.Get(field)
+		sum_xx += pX * pX
+		sum_xy += pX * p.Get(field)
+		pX += 1.0
+	}
+
+	lm := (p*sum_xy - sum_x*sum_y) / (p*sum_xx - sum_x*sum_x)
+	lb := (sum_y / p) - (lm * sum_x / p)
+	/*
+	   for i, p := range series {
+	           r[i] = Point{p.X, (p.X*m + b)}
+	       }
+	*/
+	return lm, lb
+}

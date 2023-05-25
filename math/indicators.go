@@ -996,6 +996,56 @@ func Trend(m *Matrix) int {
 	return ret
 }
 
+func TrendCounter(m *Matrix, field int) int {
+	// 0 = Trend
+	ret := m.AddNamedColumn("Trend")
+	tc := 0.0
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i].Get(field)
+		p := m.DataRows[i-1].Get(field)
+		if c >= p {
+			if tc > 0.0 {
+				tc += 1.0
+			} else {
+				tc = 1.0
+			}
+		} else {
+			if tc < 0.0 {
+				tc -= 1.0
+			} else {
+				tc = -1.0
+			}
+		}
+		m.DataRows[i].Set(ret, tc)
+	}
+	return ret
+}
+
+func CompareCounter(m *Matrix, first, second int) int {
+	// 0 = Trend
+	ret := m.AddNamedColumn("Compare")
+	tc := 0.0
+	for i := 0; i < m.Rows; i++ {
+		c := m.DataRows[i].Get(first)
+		p := m.DataRows[i].Get(second)
+		if c >= p {
+			if tc > 0.0 {
+				tc += 1.0
+			} else {
+				tc = 1.0
+			}
+		} else {
+			if tc < 0.0 {
+				tc -= 1.0
+			} else {
+				tc = -1.0
+			}
+		}
+		m.DataRows[i].Set(ret, tc)
+	}
+	return ret
+}
+
 // -----------------------------------------------------------------------
 // Tom Denmark ROC
 // -----------------------------------------------------------------------
@@ -1070,6 +1120,28 @@ func StochasticExt(m *Matrix, days, ema, highField, lowField, priceField int) in
 	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
+	return k
+}
+
+// -----------------------------------------------------------------------
+// Stochastic
+// -----------------------------------------------------------------------
+func Stoch(m *Matrix, days, field int) int {
+	// 0 = K
+	k := m.AddColumn()
+	total := m.Rows
+	if total < days {
+		return -1
+	}
+	// 100 * (close - lowest(low, length)) / (highest(high, length) - lowest(low, length)).
+	for i := days; i < m.Rows; i++ {
+		low := m.FindMinBetween(field, i-days+1, days)
+		high := m.FindMaxBetween(field, i-days+1, days)
+		d := high - low
+		if d != 0.0 {
+			m.DataRows[i].Set(k, (m.DataRows[i].Get(field)-low)/d*100.0)
+		}
+	}
 	return k
 }
 
@@ -1408,6 +1480,16 @@ func KEnvelope(m *Matrix, days int) int {
 		m.DataRows[i].Set(midIdx, m.DataRows[i].Get(ADJ_CLOSE))
 	}
 	m.RemoveColumn()
+	return ret
+}
+
+func TrueRange(cn *Matrix) int {
+	ret := cn.AddColumn()
+	for i := 1; i < cn.Rows; i++ {
+		cur := &cn.DataRows[i]
+		p := cn.DataRows[i-1]
+		cur.Set(ret, myMax(cur.Get(1)-cur.Get(2), m.Abs(cur.Get(1)-p.Get(4)), m.Abs(cur.Get(2)-p.Get(4))))
+	}
 	return ret
 }
 
@@ -2745,15 +2827,25 @@ func HeikinAshi(m *Matrix) int {
 	ci := m.AddColumn()
 	aci := m.AddColumn()
 	vi := m.AddColumn()
+	c := &m.DataRows[0]
+	c.Set(oi, 0.5*(c.Get(0)+c.Get(4)))
+	c.Set(ci, 0.25*(c.Get(0)+c.Get(HIGH)+c.Get(2)+c.Get(ADJ_CLOSE)))
+	c.Set(hi, c.Get(HIGH))
+	c.Set(li, c.Get(2))
 	for i := 1; i < m.Rows; i++ {
-		c := m.DataRows[i]
+		c = &m.DataRows[i]
 		prev := m.DataRows[i-1]
-		m.DataRows[i].Set(ci, 0.25*(c.Get(0)+c.Get(HIGH)+c.Get(2)+c.Get(ADJ_CLOSE)))
-		m.DataRows[i].Set(oi, 0.5*(prev.Get(0)+prev.Get(ADJ_CLOSE)))
-		m.DataRows[i].Set(hi, FindMax([]float64{c.Get(HIGH), c.Get(0), c.Get(ADJ_CLOSE)}))
-		m.DataRows[i].Set(li, FindMin([]float64{c.Get(2), c.Get(0), c.Get(ADJ_CLOSE)}))
-		m.DataRows[i].Set(aci, c.Get(ADJ_CLOSE))
-		m.DataRows[i].Set(vi, float64(c.Get(5)))
+		// Open = [Open (previous bar) + Close (previous bar)] /2
+		c.Set(oi, 0.5*(prev.Get(oi)+prev.Get(ci)))
+		// Close = (Open + High + Low + Close) / 4
+		c.Set(ci, 0.25*(c.Get(0)+c.Get(HIGH)+c.Get(2)+c.Get(ADJ_CLOSE)))
+		// High = Maximum of High, Open, or Close (whichever is highest)
+		c.Set(hi, FindMax([]float64{c.Get(HIGH), c.Get(oi), c.Get(ci)}))
+		// Low = Minimum of Low, Open, or Close (whichever is lowest)
+		c.Set(li, FindMin([]float64{c.Get(2), c.Get(oi), c.Get(ci)}))
+
+		c.Set(aci, c.Get(ci))
+		c.Set(vi, float64(c.Get(5)))
 	}
 	return oi
 }
@@ -2855,33 +2947,38 @@ func CMF(prices *Matrix, period int) int {
 // -----------------------------------------------------------------------
 // STC
 // -----------------------------------------------------------------------
-func STC(prices *Matrix, short, long, stoch int) int {
+/* 23,50,10,3,3*/
+func STC(prices *Matrix, short, long, cycle, firstLength, secondLength int) int {
 	// 0 = STC
-	ret := prices.AddColumn()
-	// EMA1 = EMA (Close, Short Length);
-	// EMA2 = EMA (Close, Long Length);
+	ret := prices.AddNamedColumn("STC")
+	// macd = ema(src, fastLength) - ema(src, slowLength)
 	es := EMA(prices, short, 4)
 	el := EMA(prices, long, 4)
-	// MACD = EMA1 – EMA2.
-	macd := prices.AddColumn()
+	macd := prices.Apply(func(mr MatrixRow) float64 {
+		return mr.Get(es) - mr.Get(el)
+	})
+	//k = nz(fixnan(stoch(macd, macd, macd, cycleLength)))
+	k := Stoch(prices, cycle, macd)
+	// d = ema(k, d1Length)
+	d := EMA(prices, firstLength, k)
+	// kd = nz(fixnan(stoch(d, d, d, cycleLength)))
+	kd := Stoch(prices, cycle, d)
+	//stc = ema(kd, d2Length)
+	stc := EMA(prices, secondLength, kd)
+
 	for i := 0; i < prices.Rows; i++ {
-		prices.DataRows[i].Set(macd, prices.DataRows[i].Get(es)-prices.DataRows[i].Get(el))
-	}
-	// Second, the 10-period Stochastic from the MACD values is calculated:
-	// %K (MACD) = %KV (MACD, 10);
-	// %D (MACD) = %DV (MACD, 10);
-	tmp := StochasticExt(prices, stoch, 3, macd, macd, macd)
-	for i := 0; i < prices.Rows; i++ {
-		// Schaff = 100 x (MACD – %K (MACD)) / (%D (MACD) – %K (MACD)).
-		d := prices.DataRows[i].Get(tmp+1) - prices.DataRows[i].Get(tmp)
-		if d != 0.0 {
-			prices.DataRows[i].Set(ret, 100.0*(prices.DataRows[i].Get(macd)-prices.DataRows[i].Get(tmp))/d)
+		c := &prices.DataRows[i]
+		// stc := max(min(stc, 100), 0)
+		cv := c.Get(stc)
+		if cv > 100.0 {
+			cv = 100.0
 		}
+		if cv < 0.0 {
+			cv = 0.0
+		}
+		c.Set(ret, cv)
 	}
-	prices.RemoveColumn()
-	prices.RemoveColumn()
-	prices.RemoveColumn()
-	prices.RemoveColumn()
+	prices.RemoveColumns(7)
 	return ret
 }
 
@@ -3318,24 +3415,54 @@ plot(0, color=scolor, style=cross, linewidth=2)
 // -----------------------------------------------------------------------
 // https://medium.com/geekculture/implementing-the-most-popular-indicator-on-tradingview-using-python-239d579412ab
 // https://school.stockcharts.com/doku.php?id=technical_indicators:ttm_squeeze
-func SqueezeMomentum(prices *Matrix, bollinger int, std float64, keltner int, mulKC float64) int {
+func SqueezeMomentum(prices *Matrix, length int, std, k1, k2, k3 float64) int {
 	// 0 = State 1 = Line
 	ret := prices.AddNamedColumn("Squeeze")
 	li := prices.AddNamedColumn("SQ-MOM")
-	bb := BollingerBand(prices, bollinger, std, std)
-	kc := Keltner(prices, keltner, keltner, mulKC)
+	bb := BollingerBand(prices, length, std, std)
+
+	//KELTNER CHANNELS
+	//KC_mult_high = input.float(1.0, "Keltner Channel #1")
+	//KC_mult_mid = input.float(1.5, "Keltner Channel #2")
+	//KC_mult_low = input.float(2.0, "Keltner Channel #3")
+	//KC_basis = ta.sma(close, length)
+	//	si := SMA(prices, length, 4)
+	ki1 := Keltner(prices, length, length, k1)
+	ki2 := Keltner(prices, length, length, k2)
+	ki3 := Keltner(prices, length, length, k3)
+
+	//KC_upper_high = KC_basis + devKC * KC_mult_high
+	//KC_lower_high = KC_basis - devKC * KC_mult_high
+	//KC_upper_mid = KC_basis + devKC * KC_mult_mid
+	//KC_lower_mid = KC_basis - devKC * KC_mult_mid
+	//KC_upper_low = KC_basis + devKC * KC_mult_low
+	//KC_lower_low = KC_basis - devKC * KC_mult_low
+
+	//SQUEEZE CONDITIONS
+	//NoSqz = BB_lower < KC_lower_low or BB_upper > KC_upper_low //NO SQUEEZE: GREEN
+	//LowSqz = BB_lower >= KC_lower_low or BB_upper <= KC_upper_low //LOW COMPRESSION: BLACK
+	//MidSqz = BB_lower >= KC_lower_mid or BB_upper <= KC_upper_mid //MID COMPRESSION: RED
+	//HighSqz = BB_lower >= KC_lower_high or BB_upper <= KC_upper_high //HIGH COMPRESSION: ORANGE
+
+	//kc := Keltner(prices, keltner, keltner, mulKC)
 	for i := 0; i < prices.Rows; i++ {
 		c := prices.DataRows[i]
-		//sqzOn  = (lowerBB > lowerKC) and (upperBB < upperKC)
-		//sqzOff = (lowerBB < lowerKC) and (upperBB > upperKC)
-		//noSqz  = (sqzOn == false) and (sqzOff == false)
-		if c.Get(bb+1) > c.Get(kc+1) && c.Get(bb) < c.Get(kc) {
+		//NoSqz = BB_lower < KC_lower_low or BB_upper > KC_upper_low //NO SQUEEZE: GREEN
+		if c.Get(bb+1) < c.Get(ki3+1) || c.Get(bb) > c.Get(ki3+1) {
+			prices.DataRows[i].Set(ret, 0.0)
+		}
+		//LowSqz = BB_lower >= KC_lower_low or BB_upper <= KC_upper_low //LOW COMPRESSION: BLACK
+		if c.Get(bb+1) >= c.Get(ki3+1) || c.Get(bb) < c.Get(ki3+1) {
+			prices.DataRows[i].Set(ret, 0.25)
+		}
+		//MidSqz = BB_lower >= KC_lower_mid or BB_upper <= KC_upper_mid //MID COMPRESSION: RED
+		if c.Get(bb+1) >= c.Get(ki2+1) || c.Get(bb) <= c.Get(ki2+1) {
+			prices.DataRows[i].Set(ret, 0.75)
+		}
+		//HighSqz = BB_lower >= KC_lower_high or BB_upper <= KC_upper_high //HIGH COMPRESSION: ORANGE
+		if c.Get(bb+1) >= c.Get(ki1+1) || c.Get(bb) <= c.Get(ki1) {
 			prices.DataRows[i].Set(ret, 1.0)
 		}
-		if c.Get(bb+1) < c.Get(kc+1) && c.Get(bb) > c.Get(kc) {
-			prices.DataRows[i].Set(ret, -1.0)
-		}
-
 	}
 	/*
 		Step 3: Calculate the highest high in the last 20 periods.
@@ -3345,15 +3472,15 @@ func SqueezeMomentum(prices *Matrix, bollinger int, std float64, keltner int, mu
 		Step 7: Calculate the delta between the closing price and the mean between the result from step 5 and 6.
 	*/
 	di := prices.AddColumn()
-	for i := bollinger; i < prices.Rows; i++ {
-		h, l := prices.FindHighLowIndex(i-bollinger, bollinger)
+	for i := length; i < prices.Rows; i++ {
+		h, l := prices.FindHighLowIndex(i-length, length)
 		d := (prices.DataRows[h].Get(ADJ_CLOSE) + prices.DataRows[l].Get(ADJ_CLOSE)) / 2.0
 		prices.DataRows[i].Set(di, d)
 
 	}
 
-	si := SMA(prices, bollinger, 4)
-	for i := bollinger; i < prices.Rows; i++ {
+	si := SMA(prices, length, 4)
+	for i := length; i < prices.Rows; i++ {
 		d := prices.DataRows[i].Get(ADJ_CLOSE) - (prices.DataRows[i].Get(di)+prices.DataRows[i].Get(si))/2.0
 		prices.DataRows[i].Set(li, d)
 
@@ -4872,5 +4999,222 @@ func WAE(m *Matrix, sensitivity, fast, slow, length int, multiplier float64) int
 		}
 	}
 	m.RemoveColumns(6)
+	return ret
+}
+
+func SmoothedHeikinAshi(cn *Matrix, len1, len2 int) int {
+	// 0 = Open 1 = High 2 = Low 3 = Close
+	or := cn.AddNamedColumn("SHA-Open")
+	hr := cn.AddNamedColumn("SHA-High")
+	lr := cn.AddNamedColumn("SHA-Low")
+	cr := cn.AddNamedColumn("SHA-Close")
+	o := EMA(cn, len1, 0)
+	c := EMA(cn, len1, 4)
+	h := EMA(cn, len1, 1)
+	l := EMA(cn, len1, 2)
+	haclose := cn.AddColumn()
+	haopen := cn.AddColumn()
+	hahigh := cn.AddColumn()
+	halow := cn.AddColumn()
+	for i := 1; i < cn.Rows; i++ {
+		cur := &cn.DataRows[i]
+		p := cn.DataRows[i-1]
+		// = (o+h+l+c)/4
+		cur.Set(haclose, (cur.Get(o)+cur.Get(c)+cur.Get(h)+cur.Get(l))/4.0)
+		//na(haopen[1]) ? (o + c)/2 : (haopen[1] + haclose[1]) / 2
+		if i == 1 {
+			cur.Set(haopen, (cur.Get(o)+cur.Get(c))/2.0)
+		} else {
+			cur.Set(haopen, (p.Get(haopen)+p.Get(haclose))/2.0)
+		}
+		// max (h, max(haopen,haclose))
+		cur.Set(hahigh, m.Max(cur.Get(h), m.Max(cur.Get(haopen), cur.Get(haclose))))
+		//min (l, min(haopen,haclose))
+		cur.Set(halow, m.Min(cur.Get(l), m.Min(cur.Get(haopen), cur.Get(haclose))))
+	}
+
+	o2 := EMA(cn, len2, haopen)
+	c2 := EMA(cn, len2, haclose)
+	h2 := EMA(cn, len2, hahigh)
+	l2 := EMA(cn, len2, halow)
+	cn.CopyColumn(o2, or)
+	cn.CopyColumn(c2, cr)
+	cn.CopyColumn(h2, hr)
+	cn.CopyColumn(l2, lr)
+	//cn.RemoveColumns(12)
+	return or
+
+}
+
+func rateCDV(uw, lw, body float64, cond bool) float64 {
+	ip := 2.0 * body
+	if !cond {
+		ip = 0.0
+	}
+	ret := 0.5 * (uw + lw + ip) / (uw + lw + body)
+	if ret == 0.0 {
+		ret = 0.5
+	}
+	//_rate(cond) =>
+	//  ret = 0.5 * (tw + bw + (cond ? 2 * body : 0)) / (tw + bw + body)
+	//    ret := nz(ret) == 0 ? 0.5 : ret
+	return ret
+}
+
+func CDV(cn *Matrix) int {
+	//ret := cn.AddColumn()
+	tmp := cn.AddColumn()
+	delta := cn.AddNamedColumn("Delta")
+	for i := 0; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		//tw = high - max(open, close)
+		uw := c.Get(1) - m.Max(c.Get(0), c.Get(4))
+		//bw = min(open, close) - low
+		lw := m.Min(c.Get(0), c.Get(4)) - c.Get(2)
+		//body = abs(close - open)
+		body := m.Abs(c.Get(0) - c.Get(4))
+		//deltaup =  volume * _rate(open <= close)
+		du := c.Get(5) * rateCDV(uw, lw, body, c.Get(0) <= c.Get(4))
+		//deltadown = volume * _rate(open > close)
+		dd := c.Get(5) * rateCDV(uw, lw, body, c.Get(0) > c.Get(4))
+		//delta = close >= open ? deltaup : -deltadown
+		de := du
+		if c.Get(0) < c.Get(4) {
+			de = -1.0 * dd
+		}
+		c.Set(tmp, de)
+		//cumdelta = cum(delta)
+	}
+	for i := 0; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		if i > 0 {
+			c.Set(delta, cn.DataRows[i-1].Get(tmp)+c.Get(tmp))
+		} else {
+			c.Set(delta, c.Get(tmp))
+		}
+	}
+	oi := cn.AddColumn()
+	hi := cn.AddColumn()
+	li := cn.AddColumn()
+	ci := cn.AddColumn()
+	aci := cn.AddColumn()
+
+	for i := 1; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		p := cn.DataRows[i-1]
+		c.Set(oi, p.Get(delta))
+		c.Set(hi, m.Max(c.Get(delta), p.Get(delta)))
+		c.Set(li, m.Min(c.Get(delta), p.Get(delta)))
+		c.Set(ci, c.Get(delta))
+		c.Set(aci, c.Get(delta))
+	}
+	return oi
+}
+
+// volume weighted candles
+func VWC(cn *Matrix) int {
+	si := SMA(cn, 10, 5)
+	oi := cn.AddColumn()
+	hi := cn.AddColumn()
+	li := cn.AddColumn()
+	ci := cn.AddColumn()
+	aci := cn.AddColumn()
+	ri := cn.AddColumn()
+	ti := cn.AddColumn()
+	for i := 1; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		v := 0.0
+		if c.Get(si) != 0.0 {
+			v = c.Get(5) / c.Get(si)
+		}
+		c.Set(ti, v)
+		c.Set(hi, c.Get(1)+c.Get(1)*v)
+		c.Set(li, c.Get(2)-c.Get(2)*v)
+		if c.Get(4) < c.Get(0) {
+			c.Set(oi, c.Get(0)+c.Get(0)*v)
+			c.Set(ci, c.Get(3)-c.Get(3)*v)
+			c.Set(aci, c.Get(4)-c.Get(4)*v)
+		} else {
+			c.Set(oi, c.Get(0)-c.Get(0)*v)
+			c.Set(ci, c.Get(3)+c.Get(3)*v)
+			c.Set(aci, c.Get(4)+c.Get(4)*v)
+		}
+		c.Set(ri, (c.Get(1)-c.Get(2))*v)
+	}
+	return oi
+}
+
+func CandleSentiments(cn *Matrix, atr, vma int) int {
+	// 0 = Range/ATR 1 = Body 2 = B/R 3 = Body/ATR 4 = Resistance 5 = P-E 6 = V/SMA
+	//si := SMA(cn, vma, 5)
+	raIdx := cn.AddNamedColumn("R/A")
+	bIdx := cn.AddNamedColumn("Body")
+	brIdx := cn.AddNamedColumn("B/R")
+	baIdx := cn.AddNamedColumn("B/A")
+	rsIdx := cn.AddNamedColumn("Resistance")
+	peIdx := cn.AddNamedColumn("P-E")
+	vsaIdx := cn.AddNamedColumn("V/SMA")
+	ai := ATR(cn, atr)
+	ei := EMA(cn, vma, 4)
+	vi := SMA(cn, vma, 5)
+	for i := 0; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		uw := c.Get(1) - m.Max(c.Get(0), c.Get(4))
+		lw := m.Min(c.Get(0), c.Get(4)) - c.Get(2)
+		body := m.Abs(c.Get(0) - c.Get(4))
+		rng := c.Get(1) - c.Get(2)
+		if c.Get(ai) != 0.0 {
+			c.Set(raIdx, rng/c.Get(ai))
+			c.Set(bIdx, body)
+			c.Set(brIdx, body/rng)
+			c.Set(baIdx, body/c.Get(ai))
+		}
+		if c.Get(0) < c.Get(4) {
+			c.Set(rsIdx, uw/rng)
+		} else {
+			c.Set(rsIdx, lw/rng)
+		}
+		c.Set(peIdx, c.Get(4)-c.Get(ei))
+		if c.Get(vi) != 0.0 {
+			c.Set(vsaIdx, c.Get(5)/c.Get(vi))
+		}
+	}
+	cn.RemoveColumns(4)
+	return raIdx
+}
+
+// PVT = [((CurrentClose - PreviousClose) / PreviousClose) x Volume] + PreviousPVT
+func PVT(cn *Matrix, signal int) int {
+	ret := cn.AddNamedColumn("PVT")
+	for i := 1; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		p := cn.DataRows[i-1]
+		d := ((c.Get(4)-p.Get(4))/p.Get(4))*c.Get(5) + p.Get(ret)
+		c.Set(ret, d)
+	}
+	EMA(cn, signal, ret)
+	return ret
+}
+
+// Rolling VWAP - not anchored
+func RVWAP(candles *Matrix, period int) int {
+	ret := candles.AddNamedColumn("RWAP")
+	tp := HLC3(candles)
+	//typical_price_volume = typical_price * volume
+	tpv := candles.Apply(func(mr MatrixRow) float64 {
+		return mr.Get(tp) * mr.Get(5)
+	})
+	//cumulative_price_volume = math.sum(typical_price_volume, cumulative_period)
+	cpv := candles.Sum(tpv, period)
+	//cumulative_volume = math.sum(volume, cumulative_period)
+	cv := candles.Sum(5, period)
+	//vwap = cumulative_price_volume / cumulative_volume
+	candles.ApplyRow(ret, func(mr MatrixRow) float64 {
+		if mr.Get(cv) != 0.0 {
+			return mr.Get(cpv) / mr.Get(cv)
+		}
+		return 0.0
+	})
+	candles.RemoveColumns(4)
 	return ret
 }

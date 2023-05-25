@@ -313,6 +313,20 @@ func (m Matrix) FindRowIndex(key string) int {
 	return -1
 }
 
+func (m Matrix) SearchRowIndex(key string) int {
+	ln := len(key)
+	for i, r := range m.DataRows {
+		cur := r.Key
+		if len(cur) > ln {
+			cur = cur[0:ln]
+		}
+		if cur == key {
+			return i
+		}
+	}
+	return -1
+}
+
 func (m Matrix) Last() *MatrixRow {
 	if m.Rows > 0 {
 		return &m.DataRows[m.Rows-1]
@@ -883,8 +897,8 @@ func (m *Matrix) FindTurningPoints(field int) SwingPoints {
 			sp := SwingPoint{
 				Timestamp: c.Key,
 				Type:      High,
-				Value:     c.Get(1),
-				Price:     c.Get(4),
+				Value:     c.Get(field),
+				Price:     c.Get(field),
 				Index:     i,
 				BaseType:  High,
 			}
@@ -901,8 +915,8 @@ func (m *Matrix) FindTurningPoints(field int) SwingPoints {
 			sp := SwingPoint{
 				Timestamp: c.Key,
 				Type:      Low,
-				Value:     c.Get(2),
-				Price:     c.Get(4),
+				Value:     c.Get(field),
+				Price:     c.Get(field),
 				Index:     i,
 				BaseType:  Low,
 			}
@@ -983,7 +997,7 @@ func (m *Matrix) Sublist(start, count int) *Matrix {
 }
 
 func (m *Matrix) Recent(start int) *Matrix {
-	ret := NewMatrix(m.Cols)
+	ret := NewMatrixWithHeaders(m.Cols, m.Headers)
 	for i := start; i < m.Rows; i++ {
 		ret.DataRows = append(ret.DataRows, m.DataRows[i])
 		ret.Rows++

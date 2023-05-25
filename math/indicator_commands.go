@@ -1264,13 +1264,15 @@ var cmfCmd = &IndicatorCmd{
 
 var stcCmd = &IndicatorCmd{
 	Name:        "STC",
-	CountParams: 3,
+	CountParams: 5,
 	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		short, _ := strconv.Atoi(params[0])
 		long, _ := strconv.Atoi(params[1])
 		stoch, _ := strconv.Atoi(params[2])
-		return STC(candles, short, long, stoch)
+		l1, _ := strconv.Atoi(params[2])
+		l2, _ := strconv.Atoi(params[2])
+		return STC(candles, short, long, stoch, l1, l2)
 	},
 }
 
@@ -1331,9 +1333,9 @@ var squeezemomentumCmd = &IndicatorCmd{
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
 		std, _ := strconv.ParseFloat(params[1], 64)
-		keltner, _ := strconv.Atoi(params[2])
+		//keltner, _ := strconv.Atoi(params[2])
 		mulKC, _ := strconv.ParseFloat(params[3], 64)
-		return SqueezeMomentum(candles, lookback, std, keltner, mulKC)
+		return SqueezeMomentum(candles, lookback, std, 1.0, 1.5, mulKC)
 	},
 }
 
