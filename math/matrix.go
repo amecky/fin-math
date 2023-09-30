@@ -295,6 +295,18 @@ func (m *Matrix) AddColumn() int {
 	return m.Cols - 1
 }
 
+func (m *Matrix) Set(x, y int, value float64) *MatrixRow {
+	mr := m.Row(y)
+	mr.Set(x, value)
+	return mr
+}
+
+func (m *Matrix) ForEach(fn func(index int, row *MatrixRow)) {
+	for i := 0; i < m.Rows; i++ {
+		fn(i, m.Row(i))
+	}
+}
+
 func (m Matrix) FindRow(key string) *MatrixRow {
 	for _, r := range m.DataRows {
 		if r.Key == key {
@@ -334,7 +346,7 @@ func (m Matrix) Last() *MatrixRow {
 	return nil
 }
 
-func (m Matrix) Row(index int) *MatrixRow {
+func (m *Matrix) Row(index int) *MatrixRow {
 	if index < 0 {
 		index = m.Rows + index - 1
 	}
@@ -392,11 +404,66 @@ func (m *Matrix) SetComment(row int, cmt string) {
 	}
 }
 
+func (m *Matrix) Get(col, row int) float64 {
+	if row >= 0 && row < m.Rows && col >= 0 && col < m.Cols {
+		return m.DataRows[row].Get(col)
+	}
+	return 0.0
+}
+
+func (m *Matrix) GetColum(col int) []float64 {
+	ret := make([]float64, 0)
+	for i := 0; i < m.Rows; i++ {
+		ret = append(ret, m.DataRows[i].Get(col))
+	}
+	return ret
+}
+
+func (m *Matrix) GetIntColum(col int) []int {
+	ret := make([]int, 0)
+	for i := 0; i < m.Rows; i++ {
+		ret = append(ret, int(m.DataRows[i].Get(col)))
+	}
+	return ret
+}
+
+func (m *Matrix) GetKeys() []string {
+	ret := make([]string, 0)
+	for _, c := range m.DataRows {
+		ret = append(ret, c.Key)
+	}
+	return ret
+}
+
+func (m *Matrix) GetConvertedKeys(conv func(key string) string) []string {
+	ret := make([]string, 0)
+	for _, c := range m.DataRows {
+		ret = append(ret, conv(c.Key))
+	}
+	return ret
+}
+
 func (m *MatrixRow) Get(index int) float64 {
 	if index >= 0 && index < m.Num {
 		return m.Values[index]
 	}
 	return 0.0
+}
+
+func (m *MatrixRow) High() float64 {
+	return m.Get(1)
+}
+
+func (m *MatrixRow) Low() float64 {
+	return m.Get(2)
+}
+
+func (m *MatrixRow) Open() float64 {
+	return m.Get(0)
+}
+
+func (m *MatrixRow) Close() float64 {
+	return m.Get(4)
 }
 
 func (m *MatrixRow) ShortKey() string {
@@ -552,25 +619,52 @@ func (m *Matrix) FindHighestHighLowestLow(start, count int) (float64, float64) {
 	return high, low
 }
 
-func (m *Matrix) Shift(field, period int) {
+func (m *Matrix) FindMinMax(field, start, count int) (float64, float64) {
+	if m.Rows == 0 {
+		return 0.0, 0.0
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	low := m.DataRows[start].Get(field)
+	high := m.DataRows[start].Get(field)
+	for i := start; i < end; i++ {
+		c := m.DataRows[i].Get(field)
+		if c >= high {
+			high = c
+		}
+		if c <= low {
+			low = c
+		}
+	}
+	return low, high
+}
+
+func (m *Matrix) Shift(field, period int) int {
+	ret := m.AddColumn()
 	if period > 0 {
 		for i := m.Rows - 1; i >= period; i-- {
 			idx := i - period
-			m.DataRows[i].Set(field, m.DataRows[idx].Get(field))
+			m.DataRows[i].Set(ret, m.DataRows[idx].Get(field))
 		}
 		for i := 0; i < period; i++ {
-			m.DataRows[i].Set(field, 0.0)
+			m.DataRows[i].Set(ret, 0.0)
 		}
 	} else if period < 0 {
 		period *= -1
 		for i := period; i < m.Rows; i++ {
 			idx := i - period
-			m.DataRows[idx].Set(field, m.DataRows[i].Get(field))
+			m.DataRows[idx].Set(ret, m.DataRows[i].Get(field))
 		}
 		for i := m.Rows - period; i < m.Rows; i++ {
-			m.DataRows[i].Set(field, 0.0)
+			m.DataRows[i].Set(ret, 0.0)
 		}
 	}
+	return ret
 }
 
 func (m *Matrix) FindMinBetween(field, start, count int) float64 {
@@ -709,6 +803,12 @@ func (m *Matrix) Sort(field int) {
 	})
 }
 
+func (m *Matrix) SortByKey() {
+	sort.Slice(m.DataRows, func(i, j int) bool {
+		return m.DataRows[i].Key > m.DataRows[j].Key
+	})
+}
+
 func (m *Matrix) SortReverse(field int) {
 	sort.Slice(m.DataRows, func(i, j int) bool {
 		return m.DataRows[i].Get(field) < m.DataRows[j].Get(field)
@@ -761,10 +861,25 @@ func (m *Matrix) Evaluate(eval Evaluator) int {
 	return ret
 }
 
-func (m *Matrix) ForEach(fn func(mr *MatrixRow)) {
+type CompareFn func(mat *Matrix, index int) bool
+
+func (m *Matrix) CompareAll(functions []CompareFn) int {
+	ret := m.AddColumn()
+	total := len(functions)
 	for i := 0; i < m.Rows; i++ {
-		fn(&m.DataRows[i])
+		cnt := 0
+		for _, f := range functions {
+			if f(m, i) {
+				cnt++
+			}
+		}
+		if cnt == total {
+			m.DataRows[i].Set(ret, 1.0)
+		} else {
+			m.DataRows[i].Set(ret, -1.0)
+		}
 	}
+	return ret
 }
 
 func (m *Matrix) Apply(fn func(mr MatrixRow) float64) int {
@@ -772,6 +887,17 @@ func (m *Matrix) Apply(fn func(mr MatrixRow) float64) int {
 	for i, s := range m.DataRows {
 		v := fn(s)
 		m.DataRows[i].Set(ret, v)
+	}
+	return ret
+}
+
+func (m *Matrix) ApplyCurrentPrevious(fn func(prev, cur MatrixRow) float64) int {
+	ret := m.AddColumn()
+	for i, s := range m.DataRows {
+		if i > 0 {
+			v := fn(m.DataRows[i-1], s)
+			m.DataRows[i].Set(ret, v)
+		}
 	}
 	return ret
 }
@@ -861,7 +987,7 @@ func (m *Matrix) FindSwingPoints() SwingPoints {
 			}
 			tmp = append(tmp, sp)
 		}
-		if p1.Get(2) >= pc.Get(2) && p2.Get(2) >= pc.Get(2) && p3.Get(2) >= pc.Get(2) && p4.Get(2) >= pc.Get(2) {
+		if p1.Get(2) > pc.Get(2) && p2.Get(2) > pc.Get(2) && p3.Get(2) > pc.Get(2) && p4.Get(2) > pc.Get(2) {
 			sp := SwingPoint{
 				Timestamp: pc.Key,
 				Type:      Low,
@@ -1005,6 +1131,21 @@ func (m *Matrix) Recent(start int) *Matrix {
 	return ret
 }
 
+func (m *Matrix) Subset(start, end int) *Matrix {
+	ret := NewMatrixWithHeaders(m.Cols, m.Headers)
+	if start < 0 {
+		start = 0
+	}
+	if end > m.Rows {
+		end = m.Rows
+	}
+	for i := start; i < end; i++ {
+		ret.DataRows = append(ret.DataRows, m.DataRows[i])
+		ret.Rows++
+	}
+	return ret
+}
+
 func (m *Matrix) FilterByKeys(start, end string) *Matrix {
 	ret := NewMatrix(m.Cols)
 	idx := strings.Index(start, " ")
@@ -1022,6 +1163,17 @@ func (m *Matrix) FilterByKeys(start, end string) *Matrix {
 			ts = ts[:idx] + " 00:00"
 		}
 		if ts >= start && ts <= end {
+			ret.DataRows = append(ret.DataRows, m.DataRows[i])
+			ret.Rows++
+		}
+	}
+	return ret
+}
+
+func (m *Matrix) Filter(compare func(m *Matrix, index int) bool) *Matrix {
+	ret := NewMatrix(m.Cols)
+	for i := 0; i < m.Rows; i++ {
+		if compare(m, i) {
 			ret.DataRows = append(ret.DataRows, m.DataRows[i])
 			ret.Rows++
 		}
@@ -1145,48 +1297,49 @@ func (ma *Matrix) FindSupportResistance(lookback int, threshold float64) []float
 	return points
 }
 
-func SaveMatrix(m *Matrix, fileName string, cols int) error {
-	if cols >= m.Rows {
-		return errors.New("Number of columns exceeded matrix")
-	}
+func SaveMatrix(m *Matrix, fileName string) error {
 	f, err := os.Create(fileName)
-
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
-
 	defer f.Close()
-
+	// first line are headers
+	for i, h := range m.Headers {
+		if i != 0 {
+			f.WriteString(";")
+		}
+		f.WriteString(h)
+	}
+	f.WriteString("\n")
 	for _, p := range m.DataRows {
 		_, err2 := f.WriteString(p.Key)
 		if err2 != nil {
 			fmt.Println(err2)
 			return err2
 		}
-		for i := 0; i < cols; i++ {
+		for i := 0; i < p.Num; i++ {
 			_, err2 = f.WriteString(fmt.Sprintf(";%.2f", p.Get(i)))
 			if err2 != nil {
 				fmt.Println(err2)
 				return err2
 			}
 		}
-		_, err2 = f.WriteString("\n")
+		f.WriteString("\n")
 
 	}
 	return nil
 }
 
-func LoadMatrix(fileName string, cols int) (*Matrix, error) {
-	m := NewMatrix(cols)
-	inFile, err := os.Open(fileName)
+func readMatrixFile(path string) ([]string, error) {
+	inFile, err := os.Open(path)
 	if err != nil {
-		fmt.Println(err.Error() + `: ` + fileName)
 		return nil, err
 	}
 	defer inFile.Close()
 	r := bufio.NewReader(inFile)
 	bytes := []byte{}
+	lines := []string{}
 	for {
 		line, isPrefix, err := r.ReadLine()
 		if err != nil {
@@ -1196,13 +1349,40 @@ func LoadMatrix(fileName string, cols int) (*Matrix, error) {
 		if !isPrefix {
 			str := strings.TrimSpace(string(bytes))
 			if len(str) > 0 {
-				entries := strings.Split(str, ";")
-				r := m.AddRow(entries[0])
-				for i := 0; i < cols; i++ {
-					open, _ := strconv.ParseFloat(entries[i+1], 64)
-					r.Set(i, open)
-				}
+				lines = append(lines, str)
 				bytes = []byte{}
+			}
+		}
+	}
+	if len(bytes) > 0 {
+		lines = append(lines, string(bytes))
+	}
+	return lines, nil
+}
+
+func LoadMatrix(fileName string) (*Matrix, error) {
+	lines, err := readMatrixFile(fileName)
+	if err != nil {
+		return nil, err
+	}
+	if len(lines) == 0 {
+		return nil, errors.New("empty file")
+	}
+	headerLine := lines[0]
+	headers := strings.Split(headerLine, ";")
+	max := len(headers)
+	m := NewMatrixWithHeaders(len(headers), headers)
+	for i, str := range lines {
+		if i > 0 {
+			entries := strings.Split(str, ";")
+			cnt := len(entries)
+			if cnt > max {
+				cnt = max
+			}
+			r := m.AddRow(entries[0])
+			for i := 0; i < cnt-1; i++ {
+				open, _ := strconv.ParseFloat(entries[i+1], 64)
+				r.Set(i, open)
 			}
 		}
 	}

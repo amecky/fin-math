@@ -54,7 +54,7 @@ func TranslatePatternShort(v float64) string {
 	case 1.0:
 		return "HAM"
 	case 2.0:
-		return "SHT"
+		return "SS"
 	case 3.0:
 		return "BUE"
 	case 4.0:

@@ -118,70 +118,6 @@ func MAFuncByName(name string) MAFunc {
 }
 
 // -----------------------------------------------------------------------
-// HL2 - (high+low)/2
-// -----------------------------------------------------------------------
-func HL2(m *Matrix) int {
-	ret := m.AddNamedColumn("HL2")
-	for i := 0; i < m.Rows; i++ {
-		d := (m.DataRows[i].Get(1) + m.DataRows[i].Get(2)) / 2.0
-		m.DataRows[i].Set(ret, d)
-	}
-	return ret
-}
-
-// -----------------------------------------------------------------------
-// HLC3 - (high+low+close)/3
-// -----------------------------------------------------------------------
-func HLC3(m *Matrix) int {
-	ret := m.AddNamedColumn("HLC3")
-	for i := 0; i < m.Rows; i++ {
-		d := (m.DataRows[i].Get(1) + m.DataRows[i].Get(2) + m.DataRows[i].Get(4)) / 3.0
-		m.DataRows[i].Set(ret, d)
-	}
-	return ret
-}
-
-func AVG(m *Matrix, fields ...int) int {
-	ret := m.AddNamedColumn("AVG")
-	for i := 0; i < m.Rows; i++ {
-		sum := 0.0
-		for _, f := range fields {
-			sum += m.DataRows[i].Get(f)
-		}
-		m.DataRows[i].Set(i, sum)
-	}
-	return ret
-}
-
-func Lowest(m *Matrix, period, field int) int {
-	ret := m.AddNamedColumn("Lowest")
-	for i := period; i < m.Rows; i++ {
-		l := m.DataRows[i].Get(field)
-		for j := 1; j < period; j++ {
-			if m.DataRows[i-j].Get(field) < l {
-				l = m.DataRows[i-j].Get(field)
-			}
-		}
-		m.DataRows[i].Set(i, l)
-	}
-	return ret
-}
-
-func Highest(m *Matrix, period, field int) int {
-	ret := m.AddNamedColumn("Highest")
-	for i := period; i < m.Rows; i++ {
-		h := m.DataRows[i].Get(field)
-		for j := 1; j < period; j++ {
-			if m.DataRows[i-j].Get(field) > h {
-				h = m.DataRows[i-j].Get(field)
-			}
-		}
-		m.DataRows[i].Set(i, h)
-	}
-	return ret
-}
-
-// -----------------------------------------------------------------------
 // SMA - Simple moving average
 // -----------------------------------------------------------------------
 func SMA(m *Matrix, days, field int) int {
@@ -227,58 +163,6 @@ func EMA(m *Matrix, days, field int) int {
 		}
 		m.RemoveColumn()
 	}
-	return ret
-}
-
-// -----------------------------------------------------------------------
-// EMA
-// -----------------------------------------------------------------------
-func EMATrend(m *Matrix, fast, pivot, slow int) int {
-	ret := m.AddNamedColumn("EMATrend")
-	e1 := EMA(m, fast, ADJ_CLOSE)
-	e2 := EMA(m, pivot, ADJ_CLOSE)
-	e3 := EMA(m, slow, ADJ_CLOSE)
-	for i := 1; i < m.Rows; i++ {
-		cnt := 0.0
-		c := m.DataRows[i]
-		p := m.DataRows[i-1]
-		if p.Get(e1)-p.Get(e2) > c.Get(e1)-c.Get(e2) {
-			cnt += 1.0
-		}
-		if p.Get(e1)-p.Get(e3) > c.Get(e1)-c.Get(e3) {
-			cnt += 1.0
-		}
-		if p.Get(e2)-p.Get(e3) > c.Get(e2)-c.Get(e3) {
-			cnt += 1.0
-		}
-		if c.Get(e1) > c.Get(e2) {
-			cnt += 1.0
-		}
-		if c.Get(e2) > c.Get(e3) {
-			cnt += 1.0
-		}
-		if c.Get(e1) > p.Get(e1) {
-			cnt += 1.0
-		}
-		if c.Get(e2) > p.Get(e2) {
-			cnt += 1.0
-		}
-		if c.Get(e3) > p.Get(e3) {
-			cnt += 1.0
-		}
-		if c.Get(ADJ_CLOSE) > c.Get(e1) {
-			cnt += 1.0
-		}
-		if c.Get(ADJ_CLOSE) > c.Get(e2) {
-			cnt += 1.0
-		}
-		if c.Get(ADJ_CLOSE) > c.Get(e3) {
-			cnt += 1.0
-		}
-		cnt /= 11.0
-		m.DataRows[i].Set(ret, cnt)
-	}
-	m.RemoveColumns(3)
 	return ret
 }
 
@@ -415,7 +299,6 @@ func MASlope(prices *Matrix, operator MAFunc, days, lookback int) int {
 // A value greater than zero—a positive percentage—shows that the price is rising, suggesting that the asset is gaining upward momentum.
 // Conversely, a value less than zero—a negative percentage—can be interpreted as a sign that selling pressure is increasing, forcing the price to drop.
 // A value of zero means that the asset’s current price is exactly consistent with its moving average.
-//
 func Disparity(prices *Matrix, days int) int {
 	// 0 = Disparity
 	ret := prices.AddColumn()
@@ -596,7 +479,9 @@ func MACDExt(m *Matrix, field, short, long, signal int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Momentum
+//
+//	Momentum
+//
 // -----------------------------------------------------------------------
 func Momentum(m *Matrix, days, smoothed int) int {
 	// 0 = Momentum 1 = Momentum Percentage 2 = EMA Momentum
@@ -611,7 +496,9 @@ func Momentum(m *Matrix, days, smoothed int) int {
 }
 
 // -----------------------------------------------------------------------
-//  MomentumExt
+//
+//	MomentumExt
+//
 // -----------------------------------------------------------------------
 func MomentumExt(m *Matrix, days, smoothed, field int) int {
 	// 0 = Momentum 1 = Momentum Percentage 2 = EMA Momentum
@@ -626,7 +513,9 @@ func MomentumExt(m *Matrix, days, smoothed, field int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Daily Percentage Change
+//
+//	Daily Percentage Change
+//
 // -----------------------------------------------------------------------
 func DPC(m *Matrix) int {
 	// 0 = DPC
@@ -697,7 +586,9 @@ func ConsolidatedPriceDifference(m *Matrix, min int) int {
 }
 
 // -----------------------------------------------------------------------
-//  RSI
+//
+//	RSI
+//
 // -----------------------------------------------------------------------
 func RSI(m *Matrix, days, field int) int {
 	// 0 = RSI
@@ -774,7 +665,9 @@ func RSISMA(m *Matrix, days, smoothing, field int) int {
 }
 
 // -----------------------------------------------------------------------
-//  RSI-Trend
+//
+//	RSI-Trend
+//
 // -----------------------------------------------------------------------
 func RSITrend(m *Matrix, days, sma, field int) int {
 	// 0 = RSI
@@ -809,7 +702,9 @@ func RSITrend(m *Matrix, days, sma, field int) int {
 }
 
 // -----------------------------------------------------------------------
-//  RSI
+//
+//	RSI
+//
 // -----------------------------------------------------------------------
 func RSI_BB(m *Matrix, days, field int) int {
 	// 0 = RSI 1 = Upper 2 = Lower 3 = Mid
@@ -819,7 +714,9 @@ func RSI_BB(m *Matrix, days, field int) int {
 }
 
 // -----------------------------------------------------------------------
-//  RSI Momentum
+//
+//	RSI Momentum
+//
 // -----------------------------------------------------------------------
 func RSIMomentum(m *Matrix, short, long, field int) int {
 	// 0 = RSI Momentum
@@ -904,7 +801,6 @@ func ATRExt(m *Matrix, days int, ops MAFunc) int {
 // Average Daily Range
 // Links
 // https://de.tradingview.com/script/afwR0BdW-Average-Daily-Range/
-//
 func ADR(m *Matrix, days int) int {
 	// 0 = ADR
 	ret := m.AddColumn()
@@ -914,7 +810,7 @@ func ADR(m *Matrix, days int) int {
 	}
 	si := SMA(m, days, tmp)
 	for i := 0; i < m.Rows; i++ {
-		m.DataRows[i].Set(ret, 100.0*m.DataRows[i].Get(si))
+		m.DataRows[i].Set(ret, 100.0*(m.DataRows[i].Get(si)-1.0))
 	}
 	m.RemoveColumns(2)
 	return ret
@@ -966,18 +862,16 @@ func ROC(m *Matrix, days, field int) int {
 	// 0 = ROC 1 = Diff
 	ret := m.AddNamedColumn(fmt.Sprintf("ROC%d", days))
 	di := m.AddNamedColumn("ROC-D")
-	start := days
 	for i := days; i < m.Rows; i++ {
-		if i >= start {
-			current := m.DataRows[i].Get(field)
-			prev := m.DataRows[i-days].Get(field)
-			v := 0.0
-			if prev != 0.0 {
-				v = (current - prev) / prev * 100.0
-			}
-			m.DataRows[i].Set(ret, v)
-			m.DataRows[i].Set(di, current-prev)
+		current := m.DataRows[i].Get(field)
+		prev := m.DataRows[i-days].Get(field)
+		v := 0.0
+		if prev != 0.0 {
+			//v = (current - prev) / prev * 100.0
+			v = (current/prev - 1.0) * 100.0
 		}
+		m.DataRows[i].Set(ret, v)
+		m.DataRows[i].Set(di, current-prev)
 	}
 	return ret
 }
@@ -1519,7 +1413,9 @@ func Keltner(m *Matrix, ema, atrLength int, multiplier float64) int {
 }
 
 // -----------------------------------------------------------------------
-//  DonchianChannel
+//
+//	DonchianChannel
+//
 // -----------------------------------------------------------------------
 func DonchianChannel(m *Matrix, days int) int {
 	// 0 = Upper 1 = Lower 2 = Mid
@@ -1537,7 +1433,9 @@ func DonchianChannel(m *Matrix, days int) int {
 }
 
 // -----------------------------------------------------------------------
-//  RSI - ATR - RSI
+//
+//	RSI - ATR - RSI
+//
 // -----------------------------------------------------------------------
 // https://kaabar-sofien.medium.com/coding-the-volatility-adjusted-rsi-in-tradingview-d109ef151724
 func RAR(prices *Matrix, days int) int {
@@ -1558,7 +1456,9 @@ func RAR(prices *Matrix, days int) int {
 }
 
 // -----------------------------------------------------------------------
-//  WilliamsRange
+//
+//	WilliamsRange
+//
 // -----------------------------------------------------------------------
 // W%R 14 = [ H.HIGH - C.PRICE ] / [ L.LOW - C.PRICE ] * ( - 100 )
 // where,
@@ -1774,7 +1674,9 @@ func StochasticBodySize(m *Matrix, days int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Relative Volume
+//
+//	Relative Volume
+//
 // -----------------------------------------------------------------------
 func RelativeVolume(m *Matrix, period int) int {
 	// 0 = normalized stochastic volume
@@ -1796,7 +1698,9 @@ func AveragePrice(m *Matrix) int {
 }
 
 // -----------------------------------------------------------------------
-//  VO
+//
+//	VO
+//
 // -----------------------------------------------------------------------
 // https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/volume-oscillator
 // https://commodity.com/technical-analysis/volume-oscillator/
@@ -1816,7 +1720,9 @@ func VO(m *Matrix, fast, slow int) int {
 }
 
 // -----------------------------------------------------------------------
-//  AverageVolume
+//
+//	AverageVolume
+//
 // -----------------------------------------------------------------------
 // https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/volume-oscillator
 // https://commodity.com/technical-analysis/volume-oscillator/
@@ -1827,7 +1733,9 @@ func AverageVolume(m *Matrix, lookback int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Ichimoku
+//
+//	Ichimoku
+//
 // -----------------------------------------------------------------------
 // https://www.investopedia.com/terms/i/ichimoku-cloud.asp
 func Ichimoku(m *Matrix, short, mid, long int) int {
@@ -1871,7 +1779,9 @@ func Ichimoku(m *Matrix, short, mid, long int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Weighted Trend Intensity
+//
+//	Weighted Trend Intensity
+//
 // -----------------------------------------------------------------------
 // something like this: https://medium.com/geekculture/the-psychological-line-indicator-coding-back-testing-in-python-cf5210d9e079
 func WeightedTrendIntensity(m *Matrix, period int) int {
@@ -1905,6 +1815,7 @@ plot(direction < 0? na : supertrend, "Down direction", color = color.red, style=
 
 // The same on Pine
 pine_supertrend(factor, atrPeriod) =>
+
 	src = hl2
 	atr = ta.atr(atrPeriod)
 	upperBand = src + factor * atr
@@ -1916,7 +1827,6 @@ pine_supertrend(factor, atrPeriod) =>
 
 
 	[superTrend, direction]
-
 */
 func Supertrend(m *Matrix, period int, multiplier float64) int {
 	ret := m.AddColumn()
@@ -2077,7 +1987,9 @@ func KRI(m *Matrix, period int) int {
 }
 
 // -----------------------------------------------------------------------
-//  STD
+//
+//	STD
+//
 // -----------------------------------------------------------------------
 func STD(prices *Matrix, days int) int {
 	// 0 = STD
@@ -2086,7 +1998,9 @@ func STD(prices *Matrix, days int) int {
 }
 
 // -----------------------------------------------------------------------
-//  STDChannel
+//
+//	STDChannel
+//
 // -----------------------------------------------------------------------
 func STDChannel(prices *Matrix, days int, std float64) int {
 	// 0 = Upper 1 = Lower
@@ -2101,7 +2015,9 @@ func STDChannel(prices *Matrix, days int, std float64) int {
 }
 
 // -----------------------------------------------------------------------
-//  SupportResistanceChannel
+//
+//	SupportResistanceChannel
+//
 // -----------------------------------------------------------------------
 func SupportResistanceChannel(prices *Matrix, days int, std float64) int {
 	// 0 = Upper 1 = Lower
@@ -2119,7 +2035,9 @@ func SupportResistanceChannel(prices *Matrix, days int, std float64) int {
 }
 
 // -----------------------------------------------------------------------
-//  STD
+//
+//	STD
+//
 // -----------------------------------------------------------------------
 func STDStochastic(prices *Matrix, days int) int {
 	// 0 = K 1 = D
@@ -2229,7 +2147,9 @@ func BullishBearish(m *Matrix, period int) int {
 }
 
 // -----------------------------------------------------------------------
-//  OBV
+//
+// OBV
+// https://www.investopedia.com/terms/o/onbalancevolume.asp
 // -----------------------------------------------------------------------
 func OBV(m *Matrix, scale float64) int {
 	// 0 = OBV
@@ -2256,7 +2176,9 @@ func OBV(m *Matrix, scale float64) int {
 }
 
 // -----------------------------------------------------------------------
-//  Aroon
+//
+//	Aroon
+//
 // -----------------------------------------------------------------------
 func Aroon(m *Matrix, days int) int {
 	// 0 = AroonUp 1 = AroonDown
@@ -2276,7 +2198,9 @@ func Aroon(m *Matrix, days int) int {
 }
 
 // -----------------------------------------------------------------------
-//  TrendIntensity
+//
+//	TrendIntensity
+//
 // -----------------------------------------------------------------------
 func TrendIntensity(m *Matrix, days int) int {
 	// 0 = TS
@@ -2305,7 +2229,9 @@ func TrendIntensity(m *Matrix, days int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Chaikin A/D Line
+//
+//	Chaikin A/D Line
+//
 // -----------------------------------------------------------------------
 // https://www.boerse.de/technische-indikatoren/A-D-Linie-1
 func AD(m *Matrix) int {
@@ -2329,7 +2255,9 @@ func AD(m *Matrix) int {
 }
 
 // -----------------------------------------------------------------------
-//  TSI
+//
+//	TSI
+//
 // -----------------------------------------------------------------------
 // https://www.investopedia.com/terms/t/tsi.asp
 func TSI(m *Matrix, short, long, signal int) int {
@@ -2374,7 +2302,9 @@ func TSI(m *Matrix, short, long, signal int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Divergence
+//
+//	Divergence
+//
 // -----------------------------------------------------------------------
 func Divergence(m *Matrix, first, second, period int) int {
 	// 0 = Divergence (1=bullish -1=bearish)
@@ -2401,7 +2331,9 @@ func Divergence(m *Matrix, first, second, period int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Divergence
+//
+//	Divergence
+//
 // -----------------------------------------------------------------------
 func HighLowChannel(m *Matrix, highPeriod, lowPeriod int) int {
 	// 0 = High 1 = Low
@@ -2429,7 +2361,9 @@ func HighestLowestChannel(m *Matrix, period int) int {
 }
 
 // -----------------------------------------------------------------------
-//  ADX
+//
+//	ADX
+//
 // -----------------------------------------------------------------------
 func ADX(m *Matrix, lookback int) int {
 	// 0 = ADX 1 = PDI 2 = MDI 3 = Diff
@@ -2617,60 +2551,6 @@ func DPO(m *Matrix, period int) int {
 	return ret
 }
 
-// -----------------------------------------------------------------------
-//  MFI
-// -----------------------------------------------------------------------
-/*
-Typical Price: (High + Low + Close) / 3
-
-If TP(t) > TP(t-1) then MFP = MFP(t-1) + TP(t) * V(t)
-If TP(t) < TP(t-1) then MFN = MFN(t-1) + TP(t) * V(t)
-
-MFI(t) = 100 - 100 / ( (1 + MFP(t)) / MFN(t))
-
-*/
-func MFI(m *Matrix, days int) int {
-	// 0 = MFI
-	ret := m.AddColumn()
-	tp := m.AddColumn()
-	rmf := m.AddColumn()
-	mfpi := m.AddColumn()
-	mfni := m.AddColumn()
-	mr := m.AddColumn()
-	for i := 0; i < m.Rows; i++ {
-		v := (m.DataRows[i].Get(HIGH) + m.DataRows[i].Get(2) + m.DataRows[i].Get(ADJ_CLOSE)) / 3.0
-		m.DataRows[i].Set(tp, v)
-		m.DataRows[i].Set(rmf, m.DataRows[i].Get(5)*v)
-	}
-	// money ratio
-	for i := days + 1; i < m.Rows; i++ {
-		mfp := 0.0
-		mfn := 0.0
-		for j := 0; j < days; j++ {
-			cur := m.DataRows[i-j].Get(tp)
-			prev := m.DataRows[i-1-j].Get(tp)
-			if cur > prev {
-				mfp += m.DataRows[i].Get(rmf)
-			} else {
-				mfn += m.DataRows[i].Get(rmf)
-			}
-		}
-
-		m.DataRows[i].Set(mfpi, mfp)
-		m.DataRows[i].Set(mfni, mfn)
-		if mfn != 0.0 {
-			m.DataRows[i].Set(mr, mfp/mfn)
-			m.DataRows[i].Set(ret, 100.0-100.0/(1.0+m.DataRows[i].Get(mr)))
-		}
-	}
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
-	return ret
-}
-
 func MACD_BB(m *Matrix, short, long, period int, s float64) int {
 	// 0 = Upper 1 = Lower 2 = MACD
 	upper := m.AddColumn()
@@ -2817,7 +2697,9 @@ func DOSC(m *Matrix, r, e1, e2, s, sl int) int {
 }
 
 // -----------------------------------------------------------------------
-//  HeikinAshi
+//
+//	HeikinAshi
+//
 // -----------------------------------------------------------------------
 func HeikinAshi(m *Matrix) int {
 	// 0 = Open 1 = High 2 = Low 3 = Close 4 = AdjClose 5 = Volume
@@ -2851,7 +2733,9 @@ func HeikinAshi(m *Matrix) int {
 }
 
 // -----------------------------------------------------------------------
-//  Hull Moving Average
+//
+//	Hull Moving Average
+//
 // -----------------------------------------------------------------------
 // https://school.stockcharts.com/doku.php?id=technical_indicators:hull_moving_average
 // https://blog.earn2trade.com/hull-moving-average/
@@ -3082,7 +2966,9 @@ func FindFibonacciLevels(prices *Matrix, lookback int) *MajorLevels {
 }
 
 // -----------------------------------------------------------------------
-//  Choppiness
+//
+//	Choppiness
+//
 // -----------------------------------------------------------------------
 // https://medium.com/codex/detecting-ranging-and-trending-markets-with-choppiness-index-in-python-1942e6450b58
 // https://www.tradingview.com/support/solutions/43000501980-choppiness-index-chop/
@@ -3136,7 +3022,9 @@ func Spread(prices *Matrix, lookback int) int {
 }
 
 // -----------------------------------------------------------------------
-//  Guppy GMMA
+//
+//	Guppy GMMA
+//
 // -----------------------------------------------------------------------
 // https://www.investopedia.com/terms/g/guppy-multiple-moving-average.asp
 func GMMA(prices *Matrix) int {
@@ -3184,7 +3072,9 @@ func GMMA(prices *Matrix) int {
 }
 
 // -----------------------------------------------------------------------
-//  Volatility
+//
+//	Volatility
+//
 // -----------------------------------------------------------------------
 func Volatility(m *Matrix, lookback, field int) int {
 	// 0 = Volatility
@@ -3197,9 +3087,16 @@ func Volatility(m *Matrix, lookback, field int) int {
 }
 
 // -----------------------------------------------------------------------
-//  z-Score
+//
+//	z-Score
+//
 // -----------------------------------------------------------------------
+func ZScore(m *Matrix, lookback, field int) int {
+	return ZNormalization(m, lookback, field)
+}
+
 // https://kaabar-sofien.medium.com/using-z-score-in-trading-a-python-study-5f4b21b41aa0
+// z = (close - ta.sma(close, len)) / ta.stdev(close, len)
 func ZNormalization(m *Matrix, lookback, field int) int {
 	// 0 = Z-Score
 	ret := m.AddColumn()
@@ -3217,7 +3114,9 @@ func ZNormalization(m *Matrix, lookback, field int) int {
 }
 
 // -----------------------------------------------------------------------
-//  z-Normalization Bollinger Bands
+//
+//	z-Normalization Bollinger Bands
+//
 // -----------------------------------------------------------------------
 // https://medium.com/superalgos/normalization-of-oscillating-indicators-to-create-dynamic-overbought-and-oversold-levels-338d4ef72914
 func ZNormalizationBollinger(m *Matrix, period, field int) int {
@@ -3420,24 +3319,9 @@ func SqueezeMomentum(prices *Matrix, length int, std, k1, k2, k3 float64) int {
 	ret := prices.AddNamedColumn("Squeeze")
 	li := prices.AddNamedColumn("SQ-MOM")
 	bb := BollingerBand(prices, length, std, std)
-
-	//KELTNER CHANNELS
-	//KC_mult_high = input.float(1.0, "Keltner Channel #1")
-	//KC_mult_mid = input.float(1.5, "Keltner Channel #2")
-	//KC_mult_low = input.float(2.0, "Keltner Channel #3")
-	//KC_basis = ta.sma(close, length)
-	//	si := SMA(prices, length, 4)
 	ki1 := Keltner(prices, length, length, k1)
 	ki2 := Keltner(prices, length, length, k2)
 	ki3 := Keltner(prices, length, length, k3)
-
-	//KC_upper_high = KC_basis + devKC * KC_mult_high
-	//KC_lower_high = KC_basis - devKC * KC_mult_high
-	//KC_upper_mid = KC_basis + devKC * KC_mult_mid
-	//KC_lower_mid = KC_basis - devKC * KC_mult_mid
-	//KC_upper_low = KC_basis + devKC * KC_mult_low
-	//KC_lower_low = KC_basis - devKC * KC_mult_low
-
 	//SQUEEZE CONDITIONS
 	//NoSqz = BB_lower < KC_lower_low or BB_upper > KC_upper_low //NO SQUEEZE: GREEN
 	//LowSqz = BB_lower >= KC_lower_low or BB_upper <= KC_upper_low //LOW COMPRESSION: BLACK
@@ -3447,19 +3331,19 @@ func SqueezeMomentum(prices *Matrix, length int, std, k1, k2, k3 float64) int {
 	//kc := Keltner(prices, keltner, keltner, mulKC)
 	for i := 0; i < prices.Rows; i++ {
 		c := prices.DataRows[i]
-		//NoSqz = BB_lower < KC_lower_low or BB_upper > KC_upper_low //NO SQUEEZE: GREEN
+		//NoSqz = BB_lower < KC_lower_low or BB_upper > KC_upper_low //NO SQUEEZE
 		if c.Get(bb+1) < c.Get(ki3+1) || c.Get(bb) > c.Get(ki3+1) {
 			prices.DataRows[i].Set(ret, 0.0)
 		}
-		//LowSqz = BB_lower >= KC_lower_low or BB_upper <= KC_upper_low //LOW COMPRESSION: BLACK
+		//LowSqz = BB_lower >= KC_lower_low or BB_upper <= KC_upper_low //LOW COMPRESSION
 		if c.Get(bb+1) >= c.Get(ki3+1) || c.Get(bb) < c.Get(ki3+1) {
 			prices.DataRows[i].Set(ret, 0.25)
 		}
-		//MidSqz = BB_lower >= KC_lower_mid or BB_upper <= KC_upper_mid //MID COMPRESSION: RED
+		//MidSqz = BB_lower >= KC_lower_mid or BB_upper <= KC_upper_mid //MID COMPRESSION
 		if c.Get(bb+1) >= c.Get(ki2+1) || c.Get(bb) <= c.Get(ki2+1) {
 			prices.DataRows[i].Set(ret, 0.75)
 		}
-		//HighSqz = BB_lower >= KC_lower_high or BB_upper <= KC_upper_high //HIGH COMPRESSION: ORANGE
+		//HighSqz = BB_lower >= KC_lower_high or BB_upper <= KC_upper_high //HIGH COMPRESSION
 		if c.Get(bb+1) >= c.Get(ki1+1) || c.Get(bb) <= c.Get(ki1) {
 			prices.DataRows[i].Set(ret, 1.0)
 		}
@@ -3485,7 +3369,32 @@ func SqueezeMomentum(prices *Matrix, length int, std, k1, k2, k3 float64) int {
 		prices.DataRows[i].Set(li, d)
 
 	}
-	prices.RemoveColumns(8)
+	lr := LinearRegression(prices, length)
+	prices.CopyColumn(lr, li)
+	prices.RemoveColumns(16)
+	return ret
+}
+
+func TTMSqueeze(prices *Matrix, length int, std, kc float64) int {
+	// 0 = State 1 = Line
+	ret := prices.AddNamedColumn("TTM-Squeeze")
+	//mom := prices.AddNamedColumn("TTM-Hist")
+	bb := BollingerBand(prices, length, std, std)
+	ki := Keltner(prices, length, length, kc)
+
+	for i := 0; i < prices.Rows; i++ {
+		c := prices.DataRows[i]
+		if c.Get(bb+1) < c.Get(ki+1) && c.Get(bb) > c.Get(ki) {
+			prices.DataRows[i].Set(ret, 0.0)
+		}
+		if c.Get(bb+1) > c.Get(ki+1) && c.Get(bb) < c.Get(ki) {
+			prices.DataRows[i].Set(ret, 1.0)
+		}
+	}
+	// (Highest high in 20 periods + lowest low in 20 periods) / 2
+	// Close - ( (Donchian midline + SMA) / 2 )
+	// linear regression on this
+	prices.RemoveColumns(6)
 	return ret
 }
 
@@ -3698,7 +3607,7 @@ func TSV(prices *Matrix) int {
 	return ret
 }
 
-//round_(val) => val > .99 ? .999 : val < -.99 ? -.999 : val
+// round_(val) => val > .99 ? .999 : val < -.99 ? -.999 : val
 func myRound(value float64) float64 {
 	if value > 0.99 {
 		return 0.999
@@ -3854,16 +3763,17 @@ func APZ(prices *Matrix, period int, dev float64) int {
 
 /*
 pine_alma(series, windowsize, offset, sigma) =>
-    m = offset * (windowsize - 1)
-    //m = math.floor(offset * (windowsize - 1)) // Used as m when math.floor=true
-    s = windowsize / sigma
-    norm = 0.0
-    sum = 0.0
-    for i = 0 to windowsize - 1
-        weight = math.exp(-1 * math.pow(i - m, 2) / (2 * math.pow(s, 2)))
-        norm := norm + weight
-        sum := sum + series[windowsize - i - 1] * weight
-    sum / norm
+
+	m = offset * (windowsize - 1)
+	//m = math.floor(offset * (windowsize - 1)) // Used as m when math.floor=true
+	s = windowsize / sigma
+	norm = 0.0
+	sum = 0.0
+	for i = 0 to windowsize - 1
+	    weight = math.exp(-1 * math.pow(i - m, 2) / (2 * math.pow(s, 2)))
+	    norm := norm + weight
+	    sum := sum + series[windowsize - i - 1] * weight
+	sum / norm
 */
 func ALMA(prices *Matrix, windowSize int, offset, sigma float64) int {
 	// 0 = ALMA
@@ -4581,6 +4491,7 @@ srcSum = 0.0
 coefSum = 0.0
 
 for count = 0 to length - 1
+
 	distance = 0.0
 
 	for lookback = 1 to length - 1
