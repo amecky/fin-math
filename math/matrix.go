@@ -725,18 +725,19 @@ func (m *Matrix) CrossDown(first, second, index int) bool {
 	return false
 }
 
-func (m *Matrix) CrossOver(first, second, index int) int {
-	if index > 0 {
+func (m *Matrix) CrossOver(first, second int) int {
+	ret := m.AddColumn()
+	for index := 1; index < m.Rows; index++ {
 		f := m.DataRows[index-1]
-		s := m.DataRows[index]
+		s := &m.DataRows[index]
 		if f.Get(first) > f.Get(second) && s.Get(first) < s.Get(second) {
-			return -1
+			s.Set(ret, -1.0)
 		}
-		if f.Get(first) > f.Get(second) && s.Get(first) < s.Get(second) {
-			return 1
+		if f.Get(first) < f.Get(second) && s.Get(first) > s.Get(second) {
+			s.Set(ret, 1.0)
 		}
 	}
-	return 0
+	return ret
 }
 
 func (m *Matrix) Stochastic(days int, field int) int {

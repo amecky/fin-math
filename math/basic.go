@@ -24,6 +24,15 @@ func HLC3(m *Matrix) int {
 	return ret
 }
 
+func OHLC4(m *Matrix) int {
+	ret := m.AddNamedColumn("OHLC4")
+	for i := 0; i < m.Rows; i++ {
+		d := (m.DataRows[i].Get(0) + m.DataRows[i].Get(1) + m.DataRows[i].Get(2) + m.DataRows[i].Get(4)) / 4.0
+		m.DataRows[i].Set(ret, d)
+	}
+	return ret
+}
+
 func AVG(m *Matrix, fields ...int) int {
 	ret := m.AddNamedColumn("AVG")
 	for i := 0; i < m.Rows; i++ {

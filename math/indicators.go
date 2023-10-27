@@ -890,6 +890,28 @@ func Trend(m *Matrix) int {
 	return ret
 }
 
+func DiffTrendCounter(m *Matrix, field int) int {
+	// 0 = Trend
+	ret := m.AddNamedColumn("Trend")
+	tc := 0.0
+	cnt := 1.0
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i].Get(field)
+		dir := -1.0
+		if c >= 0.0 {
+			dir = 1.0
+		}
+		if dir != tc {
+			tc = dir
+			cnt = dir
+		} else {
+			cnt += dir
+		}
+		m.DataRows[i].Set(ret, cnt)
+	}
+	return ret
+}
+
 func TrendCounter(m *Matrix, field int) int {
 	// 0 = Trend
 	ret := m.AddNamedColumn("Trend")
@@ -1334,6 +1356,29 @@ func BollingerBandWidth(m *Matrix, ema int, upper, lower float64) int {
 	m.RemoveColumn()
 	m.RemoveColumn()
 	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// BollingerBand Width
+// -----------------------------------------------------------------------
+func BollingerBandWidthRatio(m *Matrix, ema int, upper, lower float64, avg int) int {
+	ret := m.AddColumn()
+	bb := BollingerBand(m, ema, upper, lower)
+	bw := m.Apply(func(mr MatrixRow) float64 {
+		if mr.Get(bb+2) != 0.0 {
+			return (mr.Get(bb) - mr.Get(bb+1)) / mr.Get(bb+2)
+		}
+		return 0.0
+	})
+	si := EMA(m, avg, bw)
+	for i := 0; i < m.Rows; i++ {
+		c := &m.DataRows[i]
+		if c.Get(si) != 0.0 {
+			c.Set(ret, c.Get(bw)/c.Get(si))
+		}
+	}
+	m.RemoveColumns(4)
 	return ret
 }
 
@@ -4081,7 +4126,7 @@ func StratPMG(prices *Matrix) int {
 		}
 		if cn > 4 {
 			c := &prices.DataRows[i]
-			c.Set(r, 1.0)
+			c.Set(r, float64(cn))
 			c.SetComment(fmt.Sprintf("PMG UP %d", cn))
 		}
 	}
@@ -4098,7 +4143,7 @@ func StratPMG(prices *Matrix) int {
 		}
 		if cn > 4 {
 			c := &prices.DataRows[i]
-			c.Set(r, -1.0)
+			c.Set(r, float64(cn)*-1.0)
 			c.SetComment(fmt.Sprintf("PMG DOWN %d", cn))
 		}
 	}
@@ -4677,23 +4722,23 @@ func LBRNormalized(m *Matrix, slow, fast, signal int) int {
 }
 
 /*
-HH = highest(index, hlPeriod, HIGH);
-LL = lowest(index, hlPeriod, LOW);
-M = (HH + LL)/2;
-D = getClose(index) - M;
-HL = HH - LL;
+study("Stochastics Momentum Index", shorttitle = "Stoch_MTM")
+a = input(10, "Percent K Length")
+b = input(3, "Percent D Length")
+ob = input(40, "Overbought")
+os = input(-40, "Oversold")
+// Range Calculation
+ll = lowest (low, a)
+hh = highest (high, a)
+diff = hh - ll
+rdiff = close - (hh+ll)/2
 
-D_MA = ma(method, index, maPeriod, D);
-HL_MA = ma(method, index, maPeriod, HL);
-D_SMOOTH = ma(method, index, smoothPeriod, D_MA);
-HL_SMOOTH = ma(method, index, smoothPeriod, HL_MA);
-HL2 = HL_SMOOTH/2;
-SMI = 0;
-SMI = 100 * (D_SMOOTH/HL2);
-SIGNAL = ma(method, index, signalPeriod, SMI);
-//Signals
-buy = crossedAbove(SMI, SIGNAL);
-sell = crossedBelow(SMI, SIGNAL);
+avgrel = ema(ema(rdiff,b),b)
+avgdiff = ema(ema(diff,b),b)
+// SMI calculations
+SMI = avgdiff != 0 ? (avgrel/(avgdiff/2)*100) : 0
+SMIsignal = ema(SMI,b)
+emasignal = ema(SMI, 10)
 */
 func SMI(m *Matrix, k, d int) int {
 	// 0 = SMI 1 = Signal 2 = Histogram
@@ -4718,11 +4763,11 @@ func SMI(m *Matrix, k, d int) int {
 		//rdiff = close - (hh+ll)/2
 		m.DataRows[i].Set(rdiff, m.DataRows[i].Get(4)-med)
 	}
-	e1 := EMA(m, k, rdiff)
+	e1 := EMA(m, d, rdiff)
 	avgrel := EMA(m, d, e1)
 	//avgrel = ema(ema(rdiff,b),b)
 	//avgdiff = ema(ema(diff,b),b)
-	e2 := EMA(m, k, diff)
+	e2 := EMA(m, d, diff)
 	avgdiff := EMA(m, d, e2)
 	// SMI calculations
 	for i := k; i < m.Rows; i++ {
@@ -5127,5 +5172,91 @@ func RVWAP(candles *Matrix, period int) int {
 		return 0.0
 	})
 	candles.RemoveColumns(4)
+	return ret
+}
+
+// PVT = [((CurrentClose - PreviousClose) / PreviousClose) x Volume] + PreviousPVT
+func PVR(cn *Matrix) int {
+	// 1 = strong uptrend 0.5 = weak uptrend -0.5 = weak downtrend -1 = strong downtrend
+	ret := cn.AddNamedColumn("PVR")
+	for i := 1; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		p := cn.DataRows[i-1]
+		d := 0.0
+		if p.Get(4) > c.Get(4) && p.Get(5) < c.Get(5) {
+			d = -1.0
+		}
+		if p.Get(4) > c.Get(4) && p.Get(5) > c.Get(5) {
+			d = -0.5
+		}
+		if p.Get(4) < c.Get(4) && p.Get(5) < c.Get(5) {
+			d = 1.0
+		}
+		if p.Get(4) < c.Get(4) && p.Get(5) > c.Get(5) {
+			d = 0.5
+		}
+		c.Set(ret, d)
+	}
+	return ret
+}
+
+//-----------------------------------------------------------------------------}
+//Augmented RSI
+//-----------------------------------------------------------------------------{
+/*
+length = input.int(14, minval = 2)
+smoType1 = input.string('RMA', 'Method', options = ['EMA', 'SMA', 'RMA', 'TMA'])
+src = input(close, 'Source')
+
+arsiCss = input(color.silver, 'Color', inline = 'rsicss')
+autoCss = input(true, 'Auto', inline = 'rsicss')
+
+//Signal Line
+smooth = input.int(14, minval = 1, group = 'Signal Line')
+*/
+func UltimateRSI(cn *Matrix, length int) int {
+	ret := cn.AddColumn()
+	//upper = ta.highest(src, length)
+	upper := Highest(cn, length, 4)
+	//lower = ta.lowest(src, length)
+	lower := Lowest(cn, length, 4)
+	//r = upper - lower
+	r := cn.Apply(func(mr MatrixRow) float64 {
+		return mr.Get(upper) - mr.Get(lower)
+	})
+	//d = src - src[1]
+	d := ROC(cn, 1, 4)
+
+	//diff = upper > upper[1] ? r
+	//: lower < lower[1] ? -r
+	//: d
+	diff := cn.AddColumn()
+	for i := 1; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		p := cn.DataRows[i-1]
+		if c.Get(upper) > p.Get(upper) {
+			c.Set(diff, c.Get(r))
+		} else if c.Get(lower) < p.Get(lower) {
+			c.Set(diff, c.Get(r)*-1.0)
+		} else {
+			c.Set(diff, c.Get(d))
+		}
+	}
+	//num = ma(diff, length, smoType1)
+	num := EMA(cn, diff, length)
+	ad := cn.Apply(func(mr MatrixRow) float64 {
+		return m.Abs(mr.Get(diff))
+	})
+	//den = ma(math.abs(diff), length, smoType1)
+	den := EMA(cn, ad, length)
+	//arsi = num / den * 50 + 50
+	cn.ApplyRow(ret, func(mr MatrixRow) float64 {
+		if mr.Get(den) != 0.0 {
+			return mr.Get(num)/mr.Get(den)*50.0 + 50.0
+		}
+		return 0.0
+	})
+	//signal = ma(arsi, smooth, smoType2)
+	cn.RemoveColumns(8)
 	return ret
 }
