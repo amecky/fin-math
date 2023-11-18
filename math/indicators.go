@@ -5260,3 +5260,40 @@ func UltimateRSI(cn *Matrix, length int) int {
 	cn.RemoveColumns(8)
 	return ret
 }
+
+func Range(cn *Matrix, ema int) int {
+	// 0 = Range 1 = EMA 2 = Relation
+	ret := cn.AddNamedColumn("Range")
+	for i := 0; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		c.Set(ret, c.High()-c.Low())
+	}
+	e := EMA(cn, ema, ret)
+	cn.Apply(func(mr MatrixRow) float64 {
+		if mr.Get(e) != 0.0 {
+			return mr.Get(ret) / mr.Get(e)
+		}
+		return 0.0
+	})
+	return ret
+}
+
+/*
+func SmoothedPivotPoints(cn *Matrix, lookback int) int {
+	fs := cn.AddNamedColumn("FirstSupport")
+	fr := cn.AddNamedColumn("FirstResistance")
+
+	// Adjusted highs
+	adjusted_high = ta.highest(high, lookback_piv)
+	// Adjusted lows
+	adjusted_low = ta.lowest(low, lookback_piv)
+	// Adjusted close
+	adjusted_close = ta.sma(close, lookback_piv)
+	// Pivot point
+	pivot_point = (adjusted_high + adjusted_low + adjusted_close) / 3
+	first_support = (ta.lowest(pivot_point, 12) * 2) - adjusted_high
+	first_resistance = (ta.highest(pivot_point, 12) * 2) - adjusted_low
+	return fs
+
+}
+*/
