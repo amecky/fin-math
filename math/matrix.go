@@ -419,6 +419,14 @@ func (m *Matrix) GetColum(col int) []float64 {
 	return ret
 }
 
+func (m *Matrix) BuildColum(conv func(m *Matrix, index int) float64) []float64 {
+	ret := make([]float64, 0)
+	for i := 0; i < m.Rows; i++ {
+		ret = append(ret, conv(m, i))
+	}
+	return ret
+}
+
 func (m *Matrix) GetIntColum(col int) []int {
 	ret := make([]int, 0)
 	for i := 0; i < m.Rows; i++ {
