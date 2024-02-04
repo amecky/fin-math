@@ -4113,13 +4113,12 @@ func StratClassification(prices *Matrix) int {
 func StratPMG(prices *Matrix) int {
 	r := prices.AddNamedColumn("PMG")
 	cnt := 5
-	for i := cnt; i < prices.Rows; i++ {
+	for i := cnt + 1; i < prices.Rows; i++ {
 		cn := 1
-		cur := prices.DataRows[i].Get(HIGH)
-		for j := i - 1; j >= 0; j-- {
-			if prices.DataRows[j].Get(HIGH) < cur {
+		for j := 0; j < cnt; j++ {
+			idx := i - cnt + j
+			if prices.DataRows[idx].Low() > prices.DataRows[idx-1].Low() {
 				cn++
-				cur = prices.DataRows[j].Get(HIGH)
 			} else {
 				break
 			}
@@ -4130,13 +4129,12 @@ func StratPMG(prices *Matrix) int {
 			c.SetComment(fmt.Sprintf("PMG UP %d", cn))
 		}
 	}
-	for i := cnt; i < prices.Rows; i++ {
+	for i := cnt + 1; i < prices.Rows; i++ {
 		cn := 1
-		cur := prices.DataRows[i].Get(LOW)
-		for j := i - 1; j >= 0; j-- {
-			if prices.DataRows[j].Get(LOW) > cur {
+		for j := 0; j < cnt; j++ {
+			idx := i - cnt + j
+			if prices.DataRows[idx].High() < prices.DataRows[idx-1].High() {
 				cn++
-				cur = prices.DataRows[j].Get(LOW)
 			} else {
 				break
 			}

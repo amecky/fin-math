@@ -170,3 +170,24 @@ func Pivots(candles *Matrix) int {
 	}
 	return ppi
 }
+
+func HHLL(candles *Matrix) int {
+	// 0 = Higher Highs 1 = Lower Lows
+	ret := candles.AddNamedColumn("HH")
+	lr := candles.AddNamedColumn("LL")
+	for i := 1; i < candles.Rows; i++ {
+		c := &candles.DataRows[i]
+		p := candles.DataRows[i-1]
+		if c.Get(1) > p.Get(1) {
+			c.Set(ret, p.Get(ret)+1)
+		} else {
+			c.Set(ret, 0)
+		}
+		if c.Get(2) < p.Get(2) {
+			c.Set(lr, p.Get(lr)+1)
+		} else {
+			c.Set(lr, 0)
+		}
+	}
+	return ret
+}
