@@ -1131,8 +1131,12 @@ func (m *Matrix) Sublist(start, count int) *Matrix {
 	return ret
 }
 
-func (m *Matrix) Recent(start int) *Matrix {
+func (m *Matrix) Recent(count int) *Matrix {
 	ret := NewMatrixWithHeaders(m.Cols, m.Headers)
+	start := m.Rows - count
+	if start < 0 {
+		start = 0
+	}
 	for i := start; i < m.Rows; i++ {
 		ret.DataRows = append(ret.DataRows, m.DataRows[i])
 		ret.Rows++
