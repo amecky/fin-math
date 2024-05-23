@@ -804,13 +804,11 @@ func ATRExt(m *Matrix, days int, ops MAFunc) int {
 func ADR(m *Matrix, days int) int {
 	// 0 = ADR
 	ret := m.AddColumn()
-	tmp := m.AddColumn()
+	s1 := SMA(m, days, 1)
+	s2 := SMA(m, days, 2)
 	for i := 0; i < m.Rows; i++ {
-		m.DataRows[i].Set(tmp, (m.DataRows[i].Get(HIGH) / m.DataRows[i].Get(LOW)))
-	}
-	si := SMA(m, days, tmp)
-	for i := 0; i < m.Rows; i++ {
-		m.DataRows[i].Set(ret, 100.0*(m.DataRows[i].Get(si)-1.0))
+		c := &m.DataRows[i]
+		c.Set(ret, c.Get(s1)-c.Get(s2))
 	}
 	m.RemoveColumns(2)
 	return ret
@@ -2979,34 +2977,19 @@ func FindInsideBarMajorLevels(prices *Matrix, threshold float64) *MajorLevels {
 }
 
 func FindFibonacciLevels(prices *Matrix, lookback int) *MajorLevels {
-	sp := prices.FindSwingPoints()
+	// 0 = High 1 = Low 2 = PP 3 = 23.6 4 = 38.2 5 = 61.8 6 = 78.6
+	h, l := prices.FindHighestHighLowestLow(prices.Rows-lookback, lookback)
 	levels := NewMajorLevels(0.0)
-	hsl := sp.FilterByType(High)
-	hi := len(hsl) - 1
-	for i, p := range hsl {
-		if p.Type == HigherHigh {
-			hi = i
-		}
-	}
-	lsl := sp.FilterByType(Low)
-	li := len(lsl) - 1
-	for i, p := range hsl {
-		if p.Type == LowerLow {
-			li = i
-		}
-	}
-	if hi >= 0 && li >= 0 {
-		cur := prices.Last().Key
-		hs := hsl[hi]
-		ls := lsl[li]
-		pp := (hs.Value + ls.Value) / 2.0
-		levels.Add(pp, 1, cur)
-		diff := hs.Value - ls.Value
-		levels.Add(pp+diff*0.382, 1, cur)
-		levels.Add(pp+diff*0.618, 1, cur)
-		levels.Add(pp-diff*0.382, 1, cur)
-		levels.Add(pp-diff*0.618, 1, cur)
-	}
+	cur := prices.Last().Key
+	pp := (h + l) / 2.0
+	levels.Add(h, 1, cur)
+	levels.Add(l, 1, cur)
+	levels.Add(pp, 1, cur)
+	diff := h - l
+	levels.Add(l+diff*0.236, 1, cur)
+	levels.Add(l+diff*0.382, 1, cur)
+	levels.Add(l+diff*0.618, 1, cur)
+	levels.Add(l+diff*0.786, 1, cur)
 	return levels
 }
 

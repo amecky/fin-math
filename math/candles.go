@@ -174,3 +174,14 @@ func RelativeCandleDescriptors(candles *Matrix) int {
 	}
 	return up
 }
+
+// Internal Bar Strength
+func IBS(candles *Matrix) int {
+	ret := candles.AddNamedColumn("IBS")
+	// 0 = Internal Bar Strength
+	for i := 0; i < candles.Rows; i++ {
+		c := &candles.DataRows[i]
+		c.Set(ret, (c.Close()-c.Low())/(c.High()-c.Low()))
+	}
+	return ret
+}
