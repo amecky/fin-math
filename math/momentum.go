@@ -54,35 +54,30 @@ MFI(t) = 100 - 100 / ( (1 + MFP(t)) / MFN(t))
 func MFI(m *Matrix, days int) int {
 	// 0 = MFI
 	ret := m.AddColumn()
-	mfpi := m.AddColumn()
-	mfni := m.AddColumn()
-	mr := m.AddColumn()
 	tp := HLC3(m)
 	rmf := m.Apply(func(mr MatrixRow) float64 {
 		return mr.Get(5) * mr.Get(tp)
 	})
+
 	// money ratio
 	for i := days + 1; i < m.Rows; i++ {
 		mfp := 0.0
 		mfn := 0.0
 		for j := 0; j < days; j++ {
-			cur := m.DataRows[i-j].Get(tp)
-			prev := m.DataRows[i-1-j].Get(tp)
-			if cur > prev {
-				mfp += m.DataRows[i].Get(rmf)
+			cur := m.DataRows[i-j]
+			prev := m.DataRows[i-1-j]
+			if cur.Get(tp) > prev.Get(tp) {
+				mfp += cur.Get(rmf)
 			} else {
-				mfn += m.DataRows[i].Get(rmf)
+				mfn += cur.Get(rmf)
 			}
 		}
-
-		m.DataRows[i].Set(mfpi, mfp)
-		m.DataRows[i].Set(mfni, mfn)
 		if mfn != 0.0 {
-			m.DataRows[i].Set(mr, mfp/mfn)
-			m.DataRows[i].Set(ret, 100.0-100.0/(1.0+m.DataRows[i].Get(mr)))
+			mr := mfp / mfn
+			m.DataRows[i].Set(ret, 100.0-100.0/(1.0+mr))
 		}
 	}
-	m.RemoveColumns(5)
+	m.RemoveColumns(2)
 	return ret
 }
 

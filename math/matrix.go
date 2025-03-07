@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"math"
 	m "math"
-	ma "math"
 	"os"
 	"sort"
 	"strconv"
@@ -89,6 +89,8 @@ type SwingPoint struct {
 	Price     float64
 	Index     int
 	Trend     int
+	Delta     float64
+	Broken    bool
 }
 
 func (s SwingPointType) String() string {
@@ -112,6 +114,16 @@ func (s SwingPointType) String() string {
 }
 
 type SwingPoints []SwingPoint
+
+func (sps SwingPoints) Contains(index int) (bool, *SwingPoint) {
+	for i := 0; i < len(sps); i++ {
+		s := sps[i]
+		if s.Index == index {
+			return true, &sps[i]
+		}
+	}
+	return false, nil
+}
 
 func (sps SwingPoints) FindTwoHH(start int) int {
 	ht := 0
@@ -235,6 +247,48 @@ func NewMatrixWithHeaders(cols int, headers []string) *Matrix {
 	return &m
 }
 
+// PriceData represents a single data point in the market
+type PriceData struct {
+	Timestamp string
+	Open      float64
+	High      float64
+	Low       float64
+	Close     float64
+}
+
+func (m *Matrix) GetAsPriceData() []PriceData {
+	ret := make([]PriceData, m.Rows)
+	for i := 0; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		ret[i] = PriceData{
+			Timestamp: c.Key,
+			Open:      c.Open(),
+			High:      c.High(),
+			Low:       c.Low(),
+			Close:     c.Close(),
+		}
+	}
+	return ret
+}
+
+func (m *Matrix) GetPriceData(start, count int) []PriceData {
+	end := start + count
+	if end > m.Rows {
+		end = m.Rows
+	}
+	ret := make([]PriceData, end-start)
+	for i := start; i < end; i++ {
+		c := m.DataRows[i]
+		ret[i-start] = PriceData{
+			Timestamp: c.Key,
+			Open:      c.Open(),
+			High:      c.High(),
+			Low:       c.Low(),
+			Close:     c.Close(),
+		}
+	}
+	return ret
+}
 func (m *Matrix) ExtractDates() []DateIndex {
 	ret := make([]DateIndex, 0)
 	mapping := make(map[string]int)
@@ -348,7 +402,7 @@ func (m Matrix) Last() *MatrixRow {
 
 func (m *Matrix) Row(index int) *MatrixRow {
 	if index < 0 {
-		index = m.Rows + index - 1
+		index = m.Rows + index
 	}
 	if m.Rows > index {
 		return &m.DataRows[index]
@@ -515,6 +569,98 @@ func (m *Matrix) FindHighLowIndex(start, count int) (int, int) {
 		}
 	}
 	return hIdx, lIdx
+}
+
+func (m *Matrix) FindHighestIndex(index, count int) int {
+	if m.Rows == 0 {
+		return 0.0
+	}
+	end := index
+	if end > m.Rows {
+		end = m.Rows
+	}
+	start := end - count
+	if start < 0 {
+		start = 0
+	}
+	high := m.DataRows[end].Get(1)
+	hi := 0
+	for i := end - 1; i >= start; i-- {
+		h := m.DataRows[i].Get(1)
+		if h > high {
+			high = h
+			hi = i - end
+		}
+	}
+	return hi
+}
+
+func (m *Matrix) FindLowestIndex(index, count int) int {
+	if m.Rows == 0 {
+		return 0.0
+	}
+	end := index
+	if end > m.Rows {
+		end = m.Rows
+	}
+	start := end - count
+	if start < 0 {
+		start = 0
+	}
+	low := m.DataRows[end].Get(2)
+	hi := 0
+	for i := end; i > start; i-- {
+		h := m.DataRows[i].Get(2)
+		if h < low {
+			low = h
+			hi = i - end
+		}
+	}
+	return hi
+}
+
+func (m *Matrix) FindHighestHigh(index, count int) float64 {
+	if m.Rows == 0 {
+		return 0.0
+	}
+	start := index - count
+	if start < 0 {
+		start = 0
+	}
+	end := index
+	if end > m.Rows {
+		end = m.Rows
+	}
+	high := m.DataRows[start].Get(1)
+	for i := start + 1; i < end; i++ {
+		h := m.DataRows[i].Get(1)
+		if h >= high {
+			high = h
+		}
+	}
+	return high
+}
+
+func (m *Matrix) FindLowestLow(index, count int) float64 {
+	if m.Rows == 0 {
+		return 0.0
+	}
+	start := index - count
+	if start < 0 {
+		start = 0
+	}
+	end := index
+	if end > m.Rows {
+		end = m.Rows
+	}
+	low := m.DataRows[start].Get(2)
+	for i := start + 1; i < end; i++ {
+		l := m.DataRows[i].Get(2)
+		if l < low {
+			low = l
+		}
+	}
+	return low
 }
 
 func (m *Matrix) FindHighestHighLowestLow(start, count int) (float64, float64) {
@@ -933,6 +1079,22 @@ func (m *Matrix) FindSwingPoints() SwingPoints {
 			tmp = append(tmp, sp)
 		}
 	}
+	for i := 1; i < len(tmp); i++ {
+		c := &tmp[i]
+		p := tmp[i-1]
+		c.Delta = c.Value - p.Value
+	}
+	for i := 0; i < len(tmp); i++ {
+		c := &tmp[i]
+		for j := c.Index; j < m.Rows; j++ {
+			if c.BaseType == High && m.DataRows[j].High() > c.Value {
+				c.Broken = true
+			}
+			if c.BaseType == Low && m.DataRows[j].Low() < c.Value {
+				c.Broken = true
+			}
+		}
+	}
 	return tmp
 }
 
@@ -979,6 +1141,91 @@ func (m *Matrix) FindTurningPoints(field int) SwingPoints {
 				lv = sp.Value
 			}
 			tmp = append(tmp, sp)
+		}
+	}
+	return tmp
+}
+
+func (m *Matrix) Fractals(size int) SwingPoints {
+	var tmp SwingPoints
+	dist := size / 2
+	lv := 0.0
+	hv := 0.0
+	for i := dist; i < m.Rows-dist; i++ {
+		c := m.DataRows[i]
+		ch := 0
+		cl := 0
+		for j := 1; j <= dist; j++ {
+			idx := i - j
+			if m.DataRows[idx].High() > c.High() {
+				ch++
+			}
+			if m.DataRows[idx].Low() < c.Low() {
+				cl++
+			}
+			idx = i + j
+			if m.DataRows[idx].High() > c.High() {
+				ch++
+			}
+			if m.DataRows[idx].Low() < c.Low() {
+				cl++
+			}
+		}
+		if ch == 0 {
+			sp := SwingPoint{
+				Timestamp: c.Key,
+				Type:      High,
+				Value:     c.Get(1),
+				Price:     c.Get(4),
+				Index:     i,
+				BaseType:  High,
+			}
+			if sp.Value > hv {
+				sp.Type = HigherHigh
+				sp.Trend = 1
+				hv = sp.Value
+			} else {
+				sp.Trend = -1
+				sp.Type = LowerHigh
+				hv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+		if cl == 0 {
+			sp := SwingPoint{
+				Timestamp: c.Key,
+				Type:      Low,
+				Value:     c.Get(2),
+				Price:     c.Get(4),
+				Index:     i,
+				BaseType:  Low,
+			}
+			if sp.Value < lv {
+				sp.Trend = -1
+				sp.Type = LowerLow
+				lv = sp.Value
+			} else {
+				sp.Trend = 1
+				sp.Type = HigherLow
+				lv = sp.Value
+			}
+			tmp = append(tmp, sp)
+		}
+	}
+	for i := 1; i < len(tmp); i++ {
+		c := &tmp[i]
+		p := tmp[i-1]
+		c.Delta = c.Value - p.Value
+	}
+	for i := 0; i < len(tmp); i++ {
+		c := &tmp[i]
+		for j := c.Index; j < m.Rows; j++ {
+			if c.BaseType == High && m.DataRows[j].High() > c.Value {
+				c.Broken = true
+			}
+			if c.BaseType == Low && m.DataRows[j].Low() < c.Value {
+				c.Broken = true
+			}
 		}
 	}
 	return tmp
@@ -1122,20 +1369,33 @@ func (m *Matrix) FilterByKeysStraight(start, end string) *Matrix {
 	return ret
 }
 
+func CalculateMean(numbers []float64) float64 {
+	sum := 0.0
+	for _, number := range numbers {
+		sum += number
+	}
+	return sum / float64(len(numbers))
+}
+
+// CalculateStandardDeviation calculates the standard deviation of a slice of numbers.
+func CalculateStandardDeviation(numbers []float64) float64 {
+	mean := CalculateMean(numbers)
+	var variance float64
+	for _, number := range numbers {
+		variance += math.Pow(number-mean, 2)
+	}
+	variance /= float64(len(numbers))
+	return math.Sqrt(variance)
+}
+
 func (m *Matrix) StdDev(field, period int) int {
 	ret := m.AddColumn()
-	avg := SMA(m, period, field)
-	for j := period; j < m.Rows; j++ {
-		sum := 0.0
-		cavg := m.DataRows[j].Get(avg)
-		for i := 0; i < period; i++ {
-			idx := j - i
-			d := m.DataRows[idx].Get(field) - cavg
-			sum += d * d
-		}
-		m.DataRows[j].Set(ret, ma.Sqrt(sum/float64(period)))
+	vol := m.GetColum(field)
+	for j := 0; j < len(vol)-period; j++ {
+		window := vol[j : j+period]
+		stdDev := CalculateStandardDeviation(window)
+		m.DataRows[j+period].Set(ret, stdDev)
 	}
-	m.RemoveColumn()
 	return ret
 }
 

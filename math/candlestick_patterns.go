@@ -45,6 +45,8 @@ func TranslatePattern(v float64) string {
 		return "Three Bar BU Reversal"
 	case 19.0:
 		return "Three Bar BE Reversal"
+	case 20.0:
+		return "Inside Bar"
 	}
 	return "-"
 }
@@ -89,6 +91,8 @@ func TranslatePatternShort(v float64) string {
 		return "3BUR"
 	case 19.0:
 		return "3BER"
+	case 20.0:
+		return "IB"
 	}
 	return "-"
 }
@@ -119,62 +123,63 @@ func FindCandleStickPatterns(prices *Matrix) int {
 	// Single Bar patterns
 	//
 	for i := 0; i < prices.Rows; i++ {
-		first := &prices.DataRows[i]
-		cd := ConvertMatrixRow(first)
+		cur := prices.DataRows[i]
+		cd := ConvertMatrixRow(cur)
 		//fmt.Println(first.Key, "=", cd, "RB", cd.Body/cd.Range)
 		// Hammer
-		ht := first.Get(HIGH) - 0.382*cd.Range
-		if first.Get(OPEN) > ht && first.Get(ADJ_CLOSE) > ht {
-			first.Set(ret, 1.0)
+		ht := cur.Get(HIGH) - 0.382*cd.Range
+		if cur.Get(OPEN) > ht && cur.Get(ADJ_CLOSE) > ht {
+			cur.Set(ret, 1.0)
 		}
 		// DOJI
 		if cd.Body/cd.Range < 0.05 {
-			first.Set(ret, 9.0)
+			cur.Set(ret, 9.0)
 		}
 		// Shooting star
-		st := first.Get(LOW) + 0.382*(first.Get(HIGH)-first.Get(LOW))
-		if first.Get(OPEN) < st && first.Get(ADJ_CLOSE) < st {
-			first.Set(ret, 2.0)
+		st := cur.Get(LOW) + 0.382*(cur.Get(HIGH)-cur.Get(LOW))
+		if cur.Get(OPEN) < st && cur.Get(ADJ_CLOSE) < st {
+			cur.Set(ret, 2.0)
 		}
 		// Bullish Marubozu
 		if cd.IsBullish() && cd.Upper/cd.Range < 0.01 && cd.Lower/cd.Range < 0.01 {
-			first.Set(ret, 12.0)
+			cur.Set(ret, 12.0)
 		}
 		// Bearish Marubozu
 		if cd.IsBearish() && cd.Upper/cd.Range < 0.01 && cd.Lower/cd.Range < 0.01 {
-			first.Set(ret, 13.0)
+			cur.Set(ret, 13.0)
 		}
 
 		// Hanging Man
 		if cd.IsBearish() && cd.Lower/cd.Range >= 0.75 {
-			first.Set(ret, 11.0)
+			cur.Set(ret, 11.0)
 		}
 		// Inverted Hammer
 		if cd.IsBullish() && cd.Upper/cd.Range >= 0.75 {
-			first.Set(ret, 10.0)
+			cur.Set(ret, 10.0)
 		}
 		if i > 0 {
-			prev := &prices.DataRows[i-1]
-			pd := ConvertMatrixRow(prev)
-			if pd.Trend != cd.Trend {
-				// Bullish Engulfing
-				if cd.IsBullish() && first.Get(ADJ_CLOSE) > prev.Get(OPEN) && first.Get(OPEN) < prev.Get(ADJ_CLOSE) {
-					prices.DataRows[i].Set(ret, 3.0)
-				}
-				// Bearish Engulfing
-				if cd.IsBearish() && first.Get(ADJ_CLOSE) < prev.Get(OPEN) && first.Get(OPEN) > prev.Get(ADJ_CLOSE) {
-					prices.DataRows[i].Set(ret, 4.0)
-				}
+			prev := prices.DataRows[i-1]
+			// Inside Bar
+			if cur.High() <= prev.High() && cur.Low() >= prev.Low() {
+				prices.DataRows[i].Set(ret, 20.0)
 			}
-
+			// Bullish Engulfing
+			if cur.IsGreen() && prev.IsRed() && cur.Get(ADJ_CLOSE) > prev.Get(OPEN) && cur.Open() < prev.Close() {
+				prices.DataRows[i].Set(ret, 3.0)
+			}
+			if cur.IsRed() && prev.IsGreen() && cur.Get(ADJ_CLOSE) < prev.Get(OPEN) && cur.Get(OPEN) > prev.Get(ADJ_CLOSE) {
+				prices.DataRows[i].Set(ret, 4.0)
+			}
+			pd := ConvertMatrixRow(prev)
 			// Tweezer Top
-			if cd.IsBullish() && pd.IsBearish() && NearlyEquals(first.Get(HIGH), prev.Get(HIGH), 0.01) {
+			if cd.IsBullish() && pd.IsBearish() && NearlyEquals(cur.Get(HIGH), prev.Get(HIGH), 0.01) {
 				prices.DataRows[i].Set(ret, 16.0)
 			}
 			// Tweezer Bottom
-			if cd.IsBearish() && pd.IsBullish() && NearlyEquals(first.Get(LOW), prev.Get(LOW), 0.01) {
+			if cd.IsBearish() && pd.IsBullish() && NearlyEquals(cur.Get(LOW), prev.Get(LOW), 0.01) {
 				prices.DataRows[i].Set(ret, 17.0)
 			}
+
 			/*
 				// Bullish Inside Bar
 				if first.Get(ci+7) == BEARISH && second.Get(ci+7) == BULLISH && first.Get(HIGH) > second.Get(HIGH) && first.Get(2) < second.Get(2) {
@@ -215,36 +220,36 @@ func FindCandleStickPatterns(prices *Matrix) int {
 
 
 		}
-
-		for i := 2; i < prices.Rows; i++ {
-			first := prices.DataRows[i-2]
-			second := prices.DataRows[i-1]
-			third := prices.DataRows[i]
-
-			// Three Bar Bullish reversal
-			if first.Get(ci+7) == BEARISH &&
-				second.Get(LOW) < first.Get(LOW) &&
-				second.Get(LOW) < third.Get(LOW) &&
-				third.Get(ADJ_CLOSE) > second.Get(HIGH) &&
-				third.Get(ADJ_CLOSE) > first.Get(HIGH) &&
-				second.Get(ADJ_CLOSE) < first.Get(OPEN) {
-				// three bar reversal
-				prices.DataRows[i].Set(ret, 18.0)
-			}
-			// Three Bar Bearish reversal
-			if first.Get(ci+7) == BULLISH &&
-				second.Get(HIGH) > first.Get(HIGH) &&
-				second.Get(HIGH) > third.Get(HIGH) &&
-				third.Get(ADJ_CLOSE) < second.Get(LOW) &&
-				third.Get(ADJ_CLOSE) < first.Get(LOW) &&
-				second.Get(ADJ_CLOSE) > first.Get(ADJ_CLOSE) {
-				// three bar reversal
-				prices.DataRows[i].Set(ret, 19.0)
-			}
-
-		}
-		prices.RemoveColumns(11)
 	*/
+	for i := 2; i < prices.Rows; i++ {
+		first := prices.DataRows[i-2]
+		second := prices.DataRows[i-1]
+		third := prices.DataRows[i]
+
+		// Three Bar Bullish reversal
+		if first.IsRed() &&
+			second.Get(LOW) < first.Get(LOW) &&
+			second.Get(LOW) < third.Get(LOW) &&
+			third.Get(ADJ_CLOSE) > second.Get(HIGH) &&
+			third.Get(ADJ_CLOSE) > first.Get(HIGH) &&
+			second.Get(ADJ_CLOSE) < first.Get(OPEN) {
+			// three bar reversal
+			prices.DataRows[i].Set(ret, 18.0)
+		}
+		// Three Bar Bearish reversal
+		if first.IsGreen() &&
+			second.Get(HIGH) > first.Get(HIGH) &&
+			second.Get(HIGH) > third.Get(HIGH) &&
+			third.Get(ADJ_CLOSE) < second.Get(LOW) &&
+			third.Get(ADJ_CLOSE) < first.Get(LOW) &&
+			second.Get(ADJ_CLOSE) > first.Get(ADJ_CLOSE) {
+			// three bar reversal
+			prices.DataRows[i].Set(ret, 19.0)
+		}
+
+	}
+	prices.RemoveColumns(11)
+
 	return ret
 }
 

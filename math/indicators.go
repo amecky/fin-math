@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	m "math"
+	ma "math"
 )
 
 // Normalizes Value into -1 / 1 range
@@ -131,6 +132,31 @@ func SMA(m *Matrix, days, field int) int {
 		}
 		avg := sum / n
 		m.DataRows[i].Set(ret, avg)
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// SMA - Simple moving average
+// -----------------------------------------------------------------------
+func ShiftedSMA(m *Matrix, days, offset, field int) int {
+	ret := m.AddNamedColumn(fmt.Sprintf("SMA%d", days))
+	n := float64(days)
+	for i := days - 1; i < m.Rows; i++ {
+		sum := 0.0
+		for j := 0; j < days; j++ {
+			idx := i - days + 1 + j
+			sum += m.DataRows[idx].Get(field)
+		}
+		avg := sum / n
+		m.DataRows[i].Set(ret, avg)
+	}
+
+	for i := m.Rows - 1; i >= offset; i-- {
+		m.DataRows[i].Set(ret, m.DataRows[i-offset].Get(ret))
+	}
+	for i := 0; i < offset; i++ {
+		m.DataRows[i].Set(ret, 0.0)
 	}
 	return ret
 }
@@ -401,6 +427,32 @@ func MACD(m *Matrix, short, long, signal int) int {
 }
 
 // -----------------------------------------------------------------------
+// MACD using SMA
+// -----------------------------------------------------------------------
+func MACDS(m *Matrix, short, long, signal int) int {
+	// 0 = Line 1 = Signal 2 = Diff
+	ret := m.AddNamedColumn("MACD-Line")
+	sig := m.AddNamedColumn("MACD-Signal")
+	diff := m.AddNamedColumn("MACD-Diff")
+
+	f := SMA(m, short, 4)
+	s := SMA(m, long, 4)
+
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, m.DataRows[i].Get(f)-m.DataRows[i].Get(s))
+	}
+	signalPairs := SMA(m, signal, ret)
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(sig, m.DataRows[i].Get(signalPairs))
+		m.DataRows[i].Set(diff, m.DataRows[i].Get(ret)-m.DataRows[i].Get(signalPairs))
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
 // MACD
 // -----------------------------------------------------------------------
 // https://cmtassociation.org/wp-content/uploads/2022/05/MACD-V-Volatility-Normalised-Momentum-by-Alex-Spiroglou-DipTA-ATAA-CFTe.pdf
@@ -432,7 +484,7 @@ func MACDV(m *Matrix, short, long, signal int) int {
 }
 
 // -----------------------------------------------------------------------
-// MACD
+// ZERO LAG MACD
 // -----------------------------------------------------------------------
 func MACDZL(m *Matrix, short, long, signal int) int {
 	// 0 = Line 1 = Signal 2 = Diff
@@ -447,6 +499,32 @@ func MACDZL(m *Matrix, short, long, signal int) int {
 		m.DataRows[i].Set(ret, m.DataRows[i].Get(f)-m.DataRows[i].Get(s))
 	}
 	signalPairs := EMA(m, signal, ret)
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(sig, m.DataRows[i].Get(signalPairs))
+		m.DataRows[i].Set(diff, m.DataRows[i].Get(ret)-m.DataRows[i].Get(signalPairs))
+	}
+	m.RemoveColumn()
+	m.RemoveColumn()
+	m.RemoveColumn()
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// MACD HMA
+// -----------------------------------------------------------------------
+func MACDHMA(m *Matrix, short, long, signal int) int {
+	// 0 = Line 1 = Signal 2 = Diff
+	ret := m.AddColumn()
+	sig := m.AddColumn()
+	diff := m.AddColumn()
+
+	f := HMA(m, short, 4)
+	s := HMA(m, long, 4)
+
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, m.DataRows[i].Get(f)-m.DataRows[i].Get(s))
+	}
+	signalPairs := HMA(m, signal, ret)
 	for i := 0; i < m.Rows; i++ {
 		m.DataRows[i].Set(sig, m.DataRows[i].Get(signalPairs))
 		m.DataRows[i].Set(diff, m.DataRows[i].Get(ret)-m.DataRows[i].Get(signalPairs))
@@ -733,31 +811,31 @@ func RSIMomentum(m *Matrix, short, long, field int) int {
 }
 
 // -----------------------------------------------------------------------
+// ATS - Average True Spread
+// -----------------------------------------------------------------------
+// https://www.investopedia.com/terms/a/atr.asp
+func ATS(mat *Matrix, days int) int {
+	// 0 = ATR
+	tmp := mat.AddColumn()
+	for i := 0; i < mat.Rows; i++ {
+		mat.DataRows[i].Set(tmp, m.Abs(mat.DataRows[i].Open()-mat.DataRows[i].Close()))
+	}
+	return EMA(mat, days, tmp)
+}
+
+// -----------------------------------------------------------------------
 // ATR
 // -----------------------------------------------------------------------
 // https://www.investopedia.com/terms/a/atr.asp
 func ATR(m *Matrix, days int) int {
-	// 0 = ATR 1 = smoothed
+	// 0 = ATR
 	ret := m.AddNamedColumn("ATR")
-	smoothed := m.AddNamedColumn("Smoothed")
-	trIdx := m.AddColumn()
-	if m.Rows < 1 {
-		return -1
-	}
+	tr := TrueRange(m)
 	for i := 1; i < m.Rows; i++ {
-		curH := m.DataRows[i].Get(HIGH)
-		curL := m.DataRows[i].Get(LOW)
-		prevC := m.DataRows[i-1].Get(ADJ_CLOSE)
-		tr := myMax(curH-curL, math.Abs(curH-prevC), math.Abs(curL-prevC))
-		m.DataRows[i].Set(trIdx, tr)
+		trueRange := m.DataRows[i].Get(tr)
+		m.DataRows[i].Set(ret, (m.DataRows[i-1].Get(ret)*(float64(days)-1)+trueRange)/float64(days))
 	}
-	rma := RMA(m, days, trIdx)
-	ema := EMA(m, days, rma)
-	for i := 1; i < m.Rows; i++ {
-		m.DataRows[i].Set(ret, m.DataRows[i].Get(rma))
-		m.DataRows[i].Set(smoothed, m.DataRows[i].Get(ema))
-	}
-	m.RemoveColumns(3)
+	m.RemoveColumns(1)
 	return ret
 }
 
@@ -913,24 +991,21 @@ func DiffTrendCounter(m *Matrix, field int) int {
 func TrendCounter(m *Matrix, field int) int {
 	// 0 = Trend
 	ret := m.AddNamedColumn("Trend")
-	tc := 0.0
+	dir := 0.0
+	cnt := 0.0
 	for i := 1; i < m.Rows; i++ {
 		c := m.DataRows[i].Get(field)
 		p := m.DataRows[i-1].Get(field)
-		if c >= p {
-			if tc > 0.0 {
-				tc += 1.0
-			} else {
-				tc = 1.0
-			}
-		} else {
-			if tc < 0.0 {
-				tc -= 1.0
-			} else {
-				tc = -1.0
-			}
+		curDir := 1.0
+		if c < p {
+			curDir = -1.0
 		}
-		m.DataRows[i].Set(ret, tc)
+		if curDir != dir {
+			cnt = 0.0
+			dir = curDir
+		}
+		cnt += 1.0
+		m.DataRows[i].Set(ret, cnt*dir)
 	}
 	return ret
 }
@@ -986,8 +1061,8 @@ func TDROC(m *Matrix, days, field int) int {
 // -----------------------------------------------------------------------
 func Stochastic(m *Matrix, days, ema int) int {
 	// 0 = K 1 = D
-	k := m.AddNamedColumn("Stoch")
-	d := m.AddNamedColumn("Stoch-K")
+	k := m.AddNamedColumn("Stoch-L")
+	d := m.AddNamedColumn("Stoch-D")
 	v := m.AddColumn()
 	total := m.Rows
 	if total < days {
@@ -1423,9 +1498,13 @@ func KEnvelope(m *Matrix, days int) int {
 func TrueRange(cn *Matrix) int {
 	ret := cn.AddColumn()
 	for i := 1; i < cn.Rows; i++ {
-		cur := &cn.DataRows[i]
+		c := cn.DataRows[i]
 		p := cn.DataRows[i-1]
-		cur.Set(ret, myMax(cur.Get(1)-cur.Get(2), m.Abs(cur.Get(1)-p.Get(4)), m.Abs(cur.Get(2)-p.Get(4))))
+		highLow := c.High() - c.Low()
+		highClose := math.Abs(c.High() - p.Close())
+		lowClose := math.Abs(c.Low() - p.Close())
+		// True Range is the maximum of the three
+		c.Set(ret, math.Max(highLow, math.Max(highClose, lowClose)))
 	}
 	return ret
 }
@@ -2224,18 +2303,23 @@ func OBV(m *Matrix, scale float64) int {
 //
 // -----------------------------------------------------------------------
 func Aroon(m *Matrix, days int) int {
-	// 0 = AroonUp 1 = AroonDown
+	// 0 = AroonUp 1 = AroonDown 2 = Diff 3 = Up Delta 4 = Down Delta
 	ui := m.AddColumn()
 	di := m.AddColumn()
-	idx := 0
+	diff := m.AddColumn()
+	ud := m.AddColumn()
+	dd := m.AddColumn()
+	//upper = 100 * (ta.highestbars(high, length + 1) + length)/length
+	//lower = 100 * (ta.lowestbars(low, length + 1) + length)/length
 	n := float64(days)
-	for i := days - 1; i < m.Rows; i++ {
-		lIdx, hIdx := m.FindHighLowIndex(idx, days)
-		lIdx = days - (lIdx - idx)
-		hIdx = days - (hIdx - idx)
-		m.DataRows[i].Set(ui, (n-float64(hIdx))/n*100.0)
-		m.DataRows[i].Set(di, (n-float64(lIdx))/n*100.0)
-		idx++
+	for i := days; i < m.Rows; i++ {
+		h := m.FindHighestIndex(i, days)
+		l := m.FindLowestIndex(i, days)
+		m.DataRows[i].Set(ui, (float64(h)+n)/n*100.0)
+		m.DataRows[i].Set(di, (float64(l)+n)/n*100.0)
+		m.DataRows[i].Set(diff, m.DataRows[i].Get(ui)-m.DataRows[i].Get(di))
+		m.DataRows[i].Set(ud, m.DataRows[i].Get(ui)-m.DataRows[i-1].Get(ui))
+		m.DataRows[i].Set(dd, m.DataRows[i].Get(di)-m.DataRows[i-1].Get(di))
 	}
 	return ui
 }
@@ -2503,9 +2587,7 @@ func ADX(m *Matrix, lookback int) int {
 			m.DataRows[i].Set(di, (m.DataRows[i].Get(pd14) - m.DataRows[i].Get(md14)))
 			pa = v
 		}
-		for i := 0; i < 9; i++ {
-			m.RemoveColumn()
-		}
+		m.RemoveColumns(9)
 	}
 	return adx
 }
@@ -2514,13 +2596,12 @@ func ADX(m *Matrix, lookback int) int {
 // RVI Relative Vigor index
 // -----------------------------------------------------------------------
 // https://www.investopedia.com/terms/r/relative_vigor_index.asp
-func RVI(m *Matrix, lookback, signal int) int {
+func RVI(m *Matrix, lookback int) int {
 	// 0 = RVI 1 = Signal
 	li := m.AddColumn()
-	si := m.AddColumn()
 	co := m.Subtract(4, 0)
-	num := SWMA(m, co)
 	hl := m.Subtract(1, 2)
+	num := SWMA(m, co)
 	dem := SWMA(m, hl)
 	sn := m.Sum(num, lookback)
 	dn := m.Sum(dem, lookback)
@@ -2529,22 +2610,14 @@ func RVI(m *Matrix, lookback, signal int) int {
 			m.DataRows[i].Set(li, m.DataRows[i].Get(sn)/m.DataRows[i].Get(dn))
 		}
 	}
-	for i := 3; i < m.Rows; i++ {
-		d := (m.DataRows[i].Get(li) + 2.0*m.DataRows[i-1].Get(li) + 2.0*m.DataRows[i-2].Get(li) + m.DataRows[i-3].Get(li)) / 6.0
-		m.DataRows[i].Set(si, d)
-	}
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
+	m.RemoveColumns(6)
+	SWMA(m, li)
 	return li
 }
 
-func RVIStochastic(m *Matrix, lookback, signal int) int {
+func RVIStochastic(m *Matrix, lookback int) int {
 	// 0 = RVI 1 = Signal 2 = RVI K 3 = RVI D
-	li := RVI(m, lookback, signal)
+	li := RVI(m, lookback)
 	StochasticExt(m, 14, 3, li, li, li)
 	return li
 }
@@ -2620,41 +2693,25 @@ func MACD_BB(m *Matrix, short, long, period int, s float64) int {
 // CCI
 // -----------------------------------------------------------------------
 func CCI(m *Matrix, days, smoothed int) int {
-	// 0 = CCI 1 = Smoothed
+	// 0 = CCI
 	ret := m.AddNamedColumn(fmt.Sprintf("CCI %d", days))
-	hlc := m.AddColumn()
-	md := m.AddColumn()
-	for i := 0; i < m.Rows; i++ {
-		p := m.DataRows[i]
-		m.DataRows[i].Set(hlc, (p.Get(HIGH)+p.Get(2)+p.Get(ADJ_CLOSE))/3.0)
-	}
+	hlc := HLC3(m)
+	/*
+			src = input(hlc3, title="Source")
+		ma = ta.sma(src, length)
+		cci = (src - ma) / (0.015 * ta.dev(src, length))
+	*/
 	sma := SMA(m, days, hlc)
-
-	for i := days; i < m.Rows; i++ {
-		sum := 0.0
-		for j := 0; j < days; j++ {
-			p := m.DataRows[j+i-days].Get(hlc)
-			s := m.DataRows[j+i-days].Get(sma)
-			sum += math.Abs(p - s)
-		}
-		sum = sum / float64(days)
-		m.DataRows[i].Set(md, sum)
-	}
-
+	std := m.StdDev(hlc, days)
 	for i := 0; i < m.Rows; i++ {
-		s := m.DataRows[i].Get(sma)
-		md := m.DataRows[i].Get(md)
+		ma := m.DataRows[i].Get(sma)
 		hlc := m.DataRows[i].Get(hlc)
-		if md != 0.0 {
-			//cci = (src - ma) / (0.015 * dev(src, length))
-			current := (hlc - s) / (0.015 * md)
-			m.DataRows[i].Set(ret, current)
+		s := m.DataRows[i].Get(std)
+		if s != 0.0 {
+			m.DataRows[i].Set(ret, (hlc-ma)/(0.015*s))
 		}
 	}
-	m.RemoveColumn()
-	m.RemoveColumn()
-	m.RemoveColumn()
-	SMA(m, smoothed, ret)
+	m.RemoveColumns(3)
 	return ret
 }
 
@@ -3141,6 +3198,24 @@ func ZNormalization(m *Matrix, lookback, field int) int {
 	return ret
 }
 
+func Normalization(m *Matrix, lookback, field int) int {
+	// 0 = Normalization
+	ret := m.AddColumn()
+	hi := Highest(m, lookback, field)
+	li := Lowest(m, lookback, field)
+	for i := lookback; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		h := c.Get(hi)
+		l := c.Get(li)
+		if h != l {
+			s := (c.Get(field)-l)/(h-l) - 0.50
+			m.DataRows[i].Set(ret, s)
+		}
+	}
+	m.RemoveColumns(2)
+	return ret
+}
+
 // -----------------------------------------------------------------------
 //
 //	z-Normalization Bollinger Bands
@@ -3404,7 +3479,7 @@ func SqueezeMomentum(prices *Matrix, length int, std, k1, k2, k3 float64) int {
 }
 
 func TTMSqueeze(prices *Matrix, length int, std, kc float64) int {
-	// 0 = State 1 = Line
+	// 0 = State (0 = squeeze, 1 = no squeeze) 1 = Line
 	ret := prices.AddNamedColumn("TTM-Squeeze")
 	//mom := prices.AddNamedColumn("TTM-Hist")
 	bb := BollingerBand(prices, length, std, std)
@@ -4131,257 +4206,6 @@ func StratPMG(prices *Matrix) int {
 	return r
 }
 
-type Gap struct {
-	Timestamp string
-	Upper     float64
-	Lower     float64
-	Filled    int
-	Index     int
-}
-
-type FairValueGap struct {
-	Timestamp string
-	Upper     float64
-	Lower     float64
-	Filled    int
-	Index     int
-	Type      int
-}
-
-func getGapState(lower, upper, low, high float64) int {
-	if high > upper && low < lower {
-		return 1
-	}
-	if high > upper && low > upper {
-		return 0
-	}
-	if high < lower && low < lower {
-		return 0
-	}
-	if high > upper && low > lower {
-		return 2
-	}
-	if high < upper && low < lower {
-		return 3
-	}
-	if high < upper && low > lower {
-		return 4
-	}
-	return 0
-}
-
-func MergeGaps(gaps []FairValueGap) []FairValueGap {
-	for j := 1; j < len(gaps); j++ {
-		cg := &gaps[j]
-		if cg.Filled == 0 {
-			s := j - 10
-			if s < 0 {
-				s = 0
-			}
-			for i := s; i < j; i++ {
-				ng := &gaps[i]
-				if ng.Filled == 0 {
-					t := 0
-					if cg.Upper <= ng.Upper && cg.Upper >= ng.Lower && cg.Lower >= ng.Lower {
-						t = 1
-					}
-					if cg.Upper >= ng.Upper && cg.Lower <= ng.Lower {
-						t = 1
-					}
-					if cg.Upper >= ng.Upper && cg.Lower >= ng.Lower && cg.Lower <= ng.Upper {
-						t = 1
-					}
-					if t == 1 {
-						ng.Filled = 1
-						cg.Lower = m.Min(cg.Lower, ng.Lower)
-						cg.Upper = m.Max(cg.Upper, ng.Upper)
-					}
-				}
-			}
-		}
-	}
-	var ret = make([]FairValueGap, 0)
-	for _, g := range gaps {
-		if g.Filled == 0 {
-			ret = append(ret, g)
-		}
-	}
-	return ret
-}
-
-func FindFairValueGaps3(candles *Matrix) []FairValueGap {
-	var gaps = make([]FairValueGap, 0)
-	for i := 2; i < candles.Rows; i++ {
-		c := candles.Row(i)
-		p := candles.Row(i - 2)
-		if c.Get(HIGH) < p.Get(LOW) {
-			gaps = append(gaps, FairValueGap{
-				Timestamp: p.Key,
-				Filled:    0,
-				Upper:     p.Get(LOW),
-				Lower:     c.Get(HIGH),
-				Index:     i - 2,
-				Type:      -1,
-			})
-		}
-		if c.Get(LOW) > p.Get(HIGH) {
-			gaps = append(gaps, FairValueGap{
-				Timestamp: p.Key,
-				Filled:    0,
-				Upper:     c.Get(LOW),
-				Lower:     p.Get(HIGH),
-				Index:     i - 2,
-				Type:      1,
-			})
-		}
-	}
-	for j, g := range gaps {
-		cg := &gaps[j]
-		for i := g.Index + 3; i < candles.Rows; i++ {
-			c := candles.Row(i)
-			state := getGapState(cg.Lower, cg.Upper, c.Get(LOW), c.Get(HIGH))
-			if state == 1 {
-				cg.Filled = 1
-				break
-			} else if state == 2 {
-				cg.Upper = c.Get(LOW)
-			} else if state == 3 {
-				cg.Lower = c.Get(HIGH)
-			} else if state == 4 {
-				fmt.Println("SPLIT IT:", c.Key)
-			}
-			if cg.Upper < cg.Lower {
-				cg.Filled = 1
-				break
-			}
-		}
-	}
-	return MergeGaps(gaps)
-}
-
-func FindFairValueGaps(candles *Matrix) []Gap {
-	var gaps = make([]Gap, 0)
-	for i := 2; i < candles.Rows; i++ {
-		c := candles.Row(i)
-		p := candles.Row(i - 2)
-		if c.Get(HIGH) < p.Get(LOW) {
-			gaps = append(gaps, Gap{
-				Timestamp: c.Key,
-				Filled:    0,
-				Upper:     p.Get(LOW),
-				Lower:     c.Get(HIGH),
-				Index:     i - 2,
-			})
-		}
-		if c.Get(LOW) > p.Get(HIGH) {
-			gaps = append(gaps, Gap{
-				Timestamp: c.Key,
-				Filled:    0,
-				Upper:     c.Get(LOW),
-				Lower:     p.Get(HIGH),
-				Index:     i - 2,
-			})
-		}
-	}
-	for j, g := range gaps {
-		cg := &gaps[j]
-		for i := g.Index + 3; i < candles.Rows; i++ {
-			c := candles.Row(i)
-			state := getGapState(cg.Lower, cg.Upper, c.Get(LOW), c.Get(HIGH))
-			if state == 1 {
-				cg.Filled = 1
-				break
-			} else if state == 2 {
-				cg.Upper = c.Get(LOW)
-			} else if state == 3 {
-				cg.Lower = c.Get(HIGH)
-			} else if state == 4 {
-				fmt.Println("SPLIT IT:", c.Key)
-			}
-			if cg.Upper < cg.Lower {
-				cg.Filled = 1
-				break
-			}
-		}
-	}
-	for j := 1; j < len(gaps); j++ {
-		cg := &gaps[j]
-		if cg.Filled == 0 {
-			s := j - 10
-			if s < 0 {
-				s = 0
-			}
-			for i := s; i < len(gaps); i++ {
-				ng := &gaps[i]
-				if ng.Filled == 0 {
-					t := 0
-					if cg.Upper < ng.Upper && cg.Upper > ng.Lower && cg.Lower < ng.Lower {
-						t = 1
-					}
-					if cg.Upper > ng.Upper && cg.Lower > ng.Lower && cg.Lower < ng.Upper {
-						t = 1
-					}
-					if t == 1 {
-						ng.Filled = 1
-						cg.Lower = m.Min(cg.Lower, ng.Lower)
-						cg.Upper = m.Max(cg.Upper, ng.Upper)
-					}
-				}
-			}
-		}
-	}
-	return gaps
-}
-
-func FindFairValueGaps2(candles *Matrix) []Gap {
-	var gaps = make([]Gap, 0)
-	for i := 2; i < candles.Rows; i++ {
-		c := candles.Row(i)
-		p := candles.Row(i - 1)
-		p2 := candles.Row(i - 2)
-		if c.Get(HIGH) < p2.Get(LOW) && p.Get(ADJ_CLOSE) < p2.Get(LOW) {
-			gaps = append(gaps, Gap{
-				Timestamp: c.Key,
-				Filled:    0,
-				Upper:     p2.Get(LOW),
-				Lower:     c.Get(HIGH),
-				Index:     i - 2,
-			})
-		}
-		if c.Get(LOW) > p2.Get(HIGH) && p.Get(ADJ_CLOSE) > p2.Get(HIGH) {
-			gaps = append(gaps, Gap{
-				Timestamp: c.Key,
-				Filled:    0,
-				Upper:     c.Get(LOW),
-				Lower:     p2.Get(HIGH),
-				Index:     i - 2,
-			})
-		}
-	}
-	for j, g := range gaps {
-		cg := &gaps[j]
-		for i := g.Index + 3; i < candles.Rows; i++ {
-			c := candles.Row(i)
-			state := getGapState(cg.Lower, cg.Upper, c.Get(LOW), c.Get(HIGH))
-			if state == 1 {
-				cg.Filled = 1
-				break
-			} else if state == 2 {
-				cg.Upper = c.Get(LOW)
-			} else if state == 3 {
-				cg.Lower = c.Get(HIGH)
-			} else if state == 4 {
-				fmt.Println("SPLIT IT:", c.Key)
-			}
-			if cg.Upper < cg.Lower {
-				cg.Filled = 1
-				break
-			}
-		}
-	}
-	return gaps
-}
-
 func DMA(candles *Matrix, sma, ema int) int {
 	// 0 = distance 1 = EMA of distance 2 = upper 3 = lower
 	// total = 6
@@ -4706,20 +4530,13 @@ func LBRNormalized(m *Matrix, slow, fast, signal int) int {
 study("Stochastics Momentum Index", shorttitle = "Stoch_MTM")
 a = input(10, "Percent K Length")
 b = input(3, "Percent D Length")
-ob = input(40, "Overbought")
-os = input(-40, "Oversold")
-// Range Calculation
-ll = lowest (low, a)
-hh = highest (high, a)
-diff = hh - ll
-rdiff = close - (hh+ll)/2
+emaEma(source, length) => ta.ema(ta.ema(source, length), length)
 
-avgrel = ema(ema(rdiff,b),b)
-avgdiff = ema(ema(diff,b),b)
-// SMI calculations
-SMI = avgdiff != 0 ? (avgrel/(avgdiff/2)*100) : 0
-SMIsignal = ema(SMI,b)
-emasignal = ema(SMI, 10)
+highestHigh = ta.highest(lengthK)
+lowestLow =   ta.lowest(lengthK)
+highestLowestRange = highestHigh - lowestLow
+relativeRange = close - (highestHigh + lowestLow) / 2
+smi = 200 * (emaEma(relativeRange, lengthD) / emaEma(highestLowestRange, lengthD))
 */
 func SMI(m *Matrix, k, d int) int {
 	// 0 = SMI 1 = Signal 2 = Histogram
@@ -5259,22 +5076,80 @@ func Range(cn *Matrix, ema int) int {
 	return ret
 }
 
-/*
-func SmoothedPivotPoints(cn *Matrix, lookback int) int {
-	fs := cn.AddNamedColumn("FirstSupport")
-	fr := cn.AddNamedColumn("FirstResistance")
-
-	// Adjusted highs
-	adjusted_high = ta.highest(high, lookback_piv)
-	// Adjusted lows
-	adjusted_low = ta.lowest(low, lookback_piv)
-	// Adjusted close
-	adjusted_close = ta.sma(close, lookback_piv)
-	// Pivot point
-	pivot_point = (adjusted_high + adjusted_low + adjusted_close) / 3
-	first_support = (ta.lowest(pivot_point, 12) * 2) - adjusted_high
-	first_resistance = (ta.highest(pivot_point, 12) * 2) - adjusted_low
-	return fs
-
+func Body(cn *Matrix, ema int) int {
+	// 0 = Body 1 = EMA 2 = Relation
+	ret := cn.AddNamedColumn("Range")
+	for i := 0; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		c.Set(ret, ma.Abs(c.Open()-c.Close()))
+	}
+	e := EMA(cn, ema, ret)
+	cn.Apply(func(mr MatrixRow) float64 {
+		if mr.Get(e) != 0.0 {
+			return mr.Get(ret) / mr.Get(e)
+		}
+		return 0.0
+	})
+	return ret
 }
-*/
+
+// https://www.youtube.com/watch?v=VSojJjnGQog
+func TrendMagic(mat *Matrix, cci, atr int, coeff float64) int {
+	tm := mat.AddColumn()
+	atrIndex := ATR(mat, atr)
+	cciIndex := CCI(mat, cci, cci/2)
+	upT := mat.Apply(func(mr MatrixRow) float64 {
+		return mr.Low() - mr.Get(atrIndex)*coeff
+	})
+	downT := mat.Apply(func(mr MatrixRow) float64 {
+		return mr.High() + mr.Get(atrIndex)*coeff
+	})
+	prev := 0.0
+	for i := 0; i < mat.Rows; i++ {
+		c := mat.DataRows[i]
+		magicTrend := 0.0
+		if c.Get(cciIndex) >= 0.0 {
+			if c.Get(upT) < prev {
+				magicTrend = prev
+			} else {
+				magicTrend = c.Get(upT)
+			}
+		} else {
+			if c.Get(downT) > prev {
+				magicTrend = prev
+			} else {
+				magicTrend = c.Get(downT)
+			}
+		}
+		mat.DataRows[i].Set(tm, magicTrend)
+		prev = magicTrend
+	}
+	mat.RemoveColumns(5)
+	return tm
+}
+
+func T3(mat *Matrix, period int, vf float64) int {
+	ret := mat.AddColumn()
+	c1 := -vf * vf * vf
+	c2 := 3*vf*vf*vf + 3*vf*vf
+	c3 := -6*vf*vf - 3*vf - 3*vf*vf*vf
+	c4 := 1 + 3*vf + 3*vf*vf + vf*vf*vf
+	emas := make([]int, 6)
+	emas[0] = EMA(mat, period, 4)
+	for i := 1; i < 6; i++ {
+		emas[i] = EMA(mat, period, emas[i-1])
+	}
+	for i := period; i < mat.Rows; i++ {
+		t3 := c1*mat.DataRows[i].Get(emas[5]) + c2*mat.DataRows[i].Get(emas[4]) + c3*mat.DataRows[i].Get(emas[3]) + c4*mat.DataRows[i].Get(emas[2])
+		mat.DataRows[i].Set(ret, t3)
+	}
+	mat.RemoveColumns(6)
+	return ret
+}
+
+func T3Oscilator(mat *Matrix, period int, vf float64, norm int) int {
+	t3 := T3(mat, period, vf)
+	ni := Normalization(mat, norm, t3)
+	SMA(mat, 18, ni)
+	return ni
+}

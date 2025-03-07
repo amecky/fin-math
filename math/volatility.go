@@ -95,3 +95,26 @@ func Reversals(candles *Matrix, period int, threshold float64) []Reversal {
 	}
 	return indices
 }
+
+func MACSpike(candles *Matrix, period int) int {
+	// 1. Convert each day’s closing price to a change (difference) by subtracting it from the previous day’s closing price.
+	// 2. Take the absolute value of that change.
+	//3. Average the past 20 days absolute values to create the baseline.
+	//4. Divide today’s change by yesterday’s baseline. (Still offsetting by one day.)
+	ret := candles.AddColumn()
+	tmp := candles.AddColumn()
+	for i := 1; i < candles.Rows; i++ {
+		c := candles.DataRows[i]
+		p := candles.DataRows[i-1]
+		candles.DataRows[i].Set(tmp, m.Abs(c.Close()-p.Close()))
+	}
+	s := SMA(candles, period, tmp)
+	for i := 1; i < candles.Rows; i++ {
+		c := candles.DataRows[i]
+		p := candles.DataRows[i-1]
+		d := c.Close() - p.Close()
+		candles.DataRows[i].Set(ret, d/p.Get(s))
+	}
+	candles.RemoveColumns(2)
+	return ret
+}

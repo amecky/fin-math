@@ -2,6 +2,7 @@ package math
 
 import (
 	m "math"
+	ma "math"
 )
 
 func HLCMAD(candles *Matrix, period int) int {
@@ -190,4 +191,158 @@ func HHLL(candles *Matrix) int {
 		}
 	}
 	return ret
+}
+
+func UpDown(m *Matrix, days int) int {
+	// 0 = Up 1 = Down 2 = Sum
+	upCol := m.AddColumn()
+	downCol := m.AddColumn()
+	sumCol := m.AddColumn()
+	delta := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		p := m.DataRows[i-1].Close()
+		c := m.DataRows[i].Close()
+		m.DataRows[i].Set(delta, c-p)
+	}
+	for i := 0; i < m.Rows; i++ {
+		up := 0
+		down := 0
+		sum := 0.0
+		end := i - days + 1
+		if end < 0 {
+			end = 0
+		}
+		for j := i; j >= end; j-- {
+			c := m.DataRows[j]
+			sum += m.DataRows[j].Get(delta)
+			if c.IsGreen() {
+				up++
+			} else {
+				down++
+			}
+		}
+		m.DataRows[i].Set(upCol, float64(up))
+		m.DataRows[i].Set(downCol, float64(down))
+		m.DataRows[i].Set(sumCol, float64(sum))
+	}
+	m.RemoveColumns(1)
+	return upCol
+}
+
+func SavGolFilter(m *Matrix, windowSize, polyOrder int) int {
+	//windowSize := 5 // Must be odd
+	//polyOrder := 2  // Polynomial degree
+	coeffs := ComputeSavGolCoefficients(windowSize, polyOrder)
+
+	// Apply the filter
+	return applySavGolFilter(m, coeffs)
+}
+
+// ComputeSavGolCoefficients calculates the Savitzky-Golay coefficients
+func ComputeSavGolCoefficients(windowSize, polyOrder int) []float64 {
+	if windowSize%2 == 0 {
+		panic("Window size must be odd.")
+	}
+	if polyOrder >= windowSize {
+		panic("Polynomial order must be less than window size.")
+	}
+
+	// Define matrix A (Vandermonde matrix)
+	halfWindow := windowSize / 2
+	A := make([][]float64, windowSize)
+	for i := -halfWindow; i <= halfWindow; i++ {
+		row := make([]float64, polyOrder+1)
+		for j := 0; j <= polyOrder; j++ {
+			row[j] = ma.Pow(float64(i), float64(j))
+		}
+		A[i+halfWindow] = row
+	}
+
+	// Compute A^T * A
+	ATA := make([][]float64, polyOrder+1)
+	for i := range ATA {
+		ATA[i] = make([]float64, polyOrder+1)
+		for j := range ATA[i] {
+			for k := 0; k < windowSize; k++ {
+				ATA[i][j] += A[k][i] * A[k][j]
+			}
+		}
+	}
+
+	// Invert ATA (for small polyOrder this is feasible)
+	ATAInv := invertMatrix(ATA)
+
+	// Compute the filter coefficients
+	AT := transposeMatrix(A)
+	coeffs := make([]float64, windowSize)
+	for i := 0; i < windowSize; i++ {
+		for j := 0; j <= polyOrder; j++ {
+			coeffs[i] += AT[0][j] * ATAInv[j][0] // Only first row corresponds to smoothing
+		}
+	}
+
+	return coeffs
+}
+
+// ApplySavGolFilter applies the Savitzky-Golay filter to the data using the given coefficients
+func applySavGolFilter(m *Matrix, coeffs []float64) int {
+	windowSize := len(coeffs)
+	halfWindow := windowSize / 2
+	ret := m.AddColumn()
+	//smoothed := make([]float64, len(data))
+
+	for i := range m.DataRows {
+		var sum float64
+		for j := -halfWindow; j <= halfWindow; j++ {
+			idx := i + j
+			if idx >= 0 && idx < m.Rows {
+				sum += m.DataRows[idx].Get(4) * coeffs[j+halfWindow]
+			}
+		}
+		m.DataRows[i].Set(ret, sum)
+	}
+	return ret
+}
+
+// Utility: Transpose a matrix
+func transposeMatrix(matrix [][]float64) [][]float64 {
+	m := len(matrix)
+	n := len(matrix[0])
+	transposed := make([][]float64, n)
+	for i := range transposed {
+		transposed[i] = make([]float64, m)
+		for j := range transposed[i] {
+			transposed[i][j] = matrix[j][i]
+		}
+	}
+	return transposed
+}
+
+// Utility: Invert a small matrix using Gaussian elimination
+func invertMatrix(matrix [][]float64) [][]float64 {
+	n := len(matrix)
+	inv := make([][]float64, n)
+	for i := range inv {
+		inv[i] = make([]float64, n)
+		inv[i][i] = 1
+	}
+	for i := 0; i < n; i++ {
+		// Normalize the row
+		diag := matrix[i][i]
+		for j := 0; j < n; j++ {
+			matrix[i][j] /= diag
+			inv[i][j] /= diag
+		}
+		// Eliminate other rows
+		for k := 0; k < n; k++ {
+			if k != i {
+				factor := matrix[k][i]
+				for j := 0; j < n; j++ {
+					matrix[k][j] -= factor * matrix[i][j]
+					inv[k][j] -= factor * inv[i][j]
+				}
+			}
+		}
+	}
+	return inv
 }

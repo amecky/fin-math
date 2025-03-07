@@ -47,28 +47,30 @@ func AVG(m *Matrix, fields ...int) int {
 
 func Lowest(m *Matrix, period, field int) int {
 	ret := m.AddNamedColumn("Lowest")
-	for i := period; i < m.Rows; i++ {
-		l := m.DataRows[i].Get(field)
+	for i := 0; i < m.Rows; i++ {
+		h := m.DataRows[i].Get(field)
 		for j := 1; j < period; j++ {
-			if m.DataRows[i-j].Get(field) < l {
-				l = m.DataRows[i-j].Get(field)
+			idx := i - j
+			if idx >= 0 && m.DataRows[idx].Get(field) < h {
+				h = m.DataRows[idx].Get(field)
 			}
 		}
-		m.DataRows[i].Set(i, l)
+		m.DataRows[i].Set(ret, h)
 	}
 	return ret
 }
 
 func Highest(m *Matrix, period, field int) int {
 	ret := m.AddNamedColumn("Highest")
-	for i := period; i < m.Rows; i++ {
+	for i := 0; i < m.Rows; i++ {
 		h := m.DataRows[i].Get(field)
 		for j := 1; j < period; j++ {
-			if m.DataRows[i-j].Get(field) > h {
-				h = m.DataRows[i-j].Get(field)
+			idx := i - j
+			if idx >= 0 && m.DataRows[idx].Get(field) > h {
+				h = m.DataRows[idx].Get(field)
 			}
 		}
-		m.DataRows[i].Set(i, h)
+		m.DataRows[i].Set(ret, h)
 	}
 	return ret
 }

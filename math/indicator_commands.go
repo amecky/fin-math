@@ -1150,8 +1150,7 @@ var rviCmd = &IndicatorCmd{
 	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
-		signal, _ := strconv.Atoi(params[1])
-		return RVI(candles, lookback, signal)
+		return RVI(candles, lookback)
 	},
 }
 
@@ -1161,8 +1160,7 @@ var rvistochasticCmd = &IndicatorCmd{
 	Renderer:    &DefaultRenderer{},
 	Run: func(candles *Matrix, params []string) int {
 		lookback, _ := strconv.Atoi(params[0])
-		signal, _ := strconv.Atoi(params[1])
-		return RVIStochastic(candles, lookback, signal)
+		return RVIStochastic(candles, lookback)
 	},
 }
 
