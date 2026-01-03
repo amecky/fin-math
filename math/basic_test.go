@@ -35,3 +35,14 @@ func TestLowest(t *testing.T) {
 	hi := Lowest(m, 10, 0)
 	assert.Equal(t, 7, m.DataRows[8].Get(hi))
 }
+
+func TestWeightedMA(t *testing.T) {
+	m := NewMatrix(1)
+	m.AddRow("1").Set(0, 4.0)
+	m.AddRow("2").Set(0, 5.0)
+	m.AddRow("3").Set(0, 6.0)
+	m.AddRow("4").Set(0, 3.0)
+	m.AddRow("5").Set(0, 2.0)
+	hi := WeightedMA(m, 5, 0)
+	assert.Equal(t, 3.6, m.DataRows[4].Get(hi))
+}

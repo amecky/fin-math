@@ -116,7 +116,7 @@ func (s SwingPointType) String() string {
 type SwingPoints []SwingPoint
 
 func (sps SwingPoints) Contains(index int) (bool, *SwingPoint) {
-	for i := 0; i < len(sps); i++ {
+	for i := range sps {
 		s := sps[i]
 		if s.Index == index {
 			return true, &sps[i]
@@ -329,6 +329,26 @@ func (m *Matrix) AddRow(key string) *MatrixRow {
 	return r
 }
 
+func (m *Matrix) ForcedAddRow(key string) *MatrixRow {
+	mr := MatrixRow{
+		Key:    key,
+		Values: make([]float64, 0),
+		Num:    m.Cols,
+	}
+	for i := 0; i < m.Cols; i++ {
+		mr.Values = append(mr.Values, 0.0)
+	}
+	m.DataRows = append(m.DataRows, mr)
+	m.Rows++
+	return &m.DataRows[m.Rows-1]
+}
+
+func (m *Matrix) SetHeader(index int, header string) {
+	if index >= 0 && index < len(m.Headers) {
+		m.Headers[index+1] = header
+	}
+}
+
 func (m *Matrix) AddNamedColumn(header string) int {
 	m.Cols++
 	m.Headers = append(m.Headers, header)
@@ -356,7 +376,7 @@ func (m *Matrix) Set(x, y int, value float64) *MatrixRow {
 }
 
 func (m *Matrix) ForEach(fn func(index int, row *MatrixRow)) {
-	for i := 0; i < m.Rows; i++ {
+	for i := range m.Rows {
 		fn(i, m.Row(i))
 	}
 }
@@ -425,15 +445,6 @@ func (m *Matrix) PartialSum(field, start, count int) float64 {
 	return sum
 }
 
-func (m *Matrix) String() string {
-	var builder strings.Builder
-	for _, d := range m.DataRows {
-		builder.WriteString(d.String())
-		builder.WriteString("\n")
-	}
-	return builder.String()
-}
-
 func (m *Matrix) SetComment(row int, cmt string) {
 	if m.Rows > row {
 		m.DataRows[row].Comment = cmt
@@ -447,7 +458,7 @@ func (m *Matrix) Get(col, row int) float64 {
 	return 0.0
 }
 
-func (m *Matrix) GetColum(col int) []float64 {
+func (m *Matrix) GetColumn(col int) []float64 {
 	ret := make([]float64, 0)
 	for i := 0; i < m.Rows; i++ {
 		ret = append(ret, m.DataRows[i].Get(col))
@@ -455,7 +466,15 @@ func (m *Matrix) GetColum(col int) []float64 {
 	return ret
 }
 
-func (m *Matrix) BuildColum(conv func(m *Matrix, index int) float64) []float64 {
+func (m *Matrix) GetPartialColumn(col, start, end int) []float64 {
+	ret := make([]float64, end-start)
+	for i := start; i < end; i++ {
+		ret[i-start] = m.DataRows[i].Get(col)
+	}
+	return ret
+}
+
+func (m *Matrix) BuildColumn(conv func(m *Matrix, index int) float64) []float64 {
 	ret := make([]float64, 0)
 	for i := 0; i < m.Rows; i++ {
 		ret = append(ret, conv(m, i))
@@ -463,10 +482,18 @@ func (m *Matrix) BuildColum(conv func(m *Matrix, index int) float64) []float64 {
 	return ret
 }
 
-func (m *Matrix) GetIntColum(col int) []int {
+func (m *Matrix) GetIntColumn(col int) []int {
 	ret := make([]int, 0)
 	for i := 0; i < m.Rows; i++ {
 		ret = append(ret, int(m.DataRows[i].Get(col)))
+	}
+	return ret
+}
+
+func (m *Matrix) GetCommentColumn() []string {
+	ret := make([]string, m.Rows)
+	for i := 0; i < m.Rows; i++ {
+		ret[i] = m.DataRows[i].Comment
 	}
 	return ret
 }
@@ -575,21 +602,18 @@ func (m *Matrix) FindHighestIndex(index, count int) int {
 	if m.Rows == 0 {
 		return 0.0
 	}
-	end := index
+	end := index + count
 	if end > m.Rows {
 		end = m.Rows
 	}
-	start := end - count
-	if start < 0 {
-		start = 0
-	}
-	high := m.DataRows[end].Get(1)
-	hi := 0
-	for i := end - 1; i >= start; i-- {
-		h := m.DataRows[i].Get(1)
+	start := index
+	hi := start
+	high := m.DataRows[hi].High()
+	for i := start + 1; i < end; i++ {
+		h := m.DataRows[i].High()
 		if h > high {
 			high = h
-			hi = i - end
+			hi = i
 		}
 	}
 	return hi
@@ -599,21 +623,18 @@ func (m *Matrix) FindLowestIndex(index, count int) int {
 	if m.Rows == 0 {
 		return 0.0
 	}
-	end := index
+	end := index + count
 	if end > m.Rows {
 		end = m.Rows
 	}
-	start := end - count
-	if start < 0 {
-		start = 0
-	}
-	low := m.DataRows[end].Get(2)
-	hi := 0
-	for i := end; i > start; i-- {
-		h := m.DataRows[i].Get(2)
+	start := index
+	hi := start
+	low := m.DataRows[hi].Low()
+	for i := start + 1; i < end; i++ {
+		h := m.DataRows[i].Low()
 		if h < low {
 			low = h
-			hi = i - end
+			hi = i
 		}
 	}
 	return hi
@@ -696,13 +717,10 @@ func (m *Matrix) FindMinMax(field, start, count int) (float64, float64) {
 	if start < 0 {
 		start = 0
 	}
-	end := start + count
-	if end > m.Rows {
-		end = m.Rows
-	}
+	end := min(start+count, m.Rows)
 	low := m.DataRows[start].Get(field)
 	high := m.DataRows[start].Get(field)
-	for i := start; i < end; i++ {
+	for i := start + 1; i < end; i++ {
 		c := m.DataRows[i].Get(field)
 		if c >= high {
 			high = c
@@ -1028,261 +1046,10 @@ func (m *Matrix) CopyColumn(source, destination int) {
 		m.DataRows[j].Values[destination] = m.DataRows[j].Values[source]
 	}
 }
-func (m *Matrix) FindSwingPoints() SwingPoints {
-	var tmp SwingPoints
-	lv := 0.0
-	hv := 0.0
-	for i := 2; i < m.Rows-2; i++ {
-		p1 := m.DataRows[i-2]
-		p2 := m.DataRows[i-1]
-		pc := m.DataRows[i]
-		p3 := m.DataRows[i+1]
-		p4 := m.DataRows[i+2]
-		if p1.Get(1) < pc.Get(1) && p2.Get(1) < pc.Get(1) && p3.Get(1) < pc.Get(1) && p4.Get(1) < pc.Get(1) {
-			sp := SwingPoint{
-				Timestamp: pc.Key,
-				Type:      High,
-				Value:     pc.Get(1),
-				Price:     pc.Get(4),
-				Index:     i,
-				BaseType:  High,
-			}
-			if sp.Value > hv {
-				sp.Type = HigherHigh
-				sp.Trend = 1
-				hv = sp.Value
-			} else {
-				sp.Trend = -1
-				sp.Type = LowerHigh
-				hv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-		if p1.Get(2) > pc.Get(2) && p2.Get(2) > pc.Get(2) && p3.Get(2) > pc.Get(2) && p4.Get(2) > pc.Get(2) {
-			sp := SwingPoint{
-				Timestamp: pc.Key,
-				Type:      Low,
-				Value:     pc.Get(2),
-				Price:     pc.Get(4),
-				Index:     i,
-				BaseType:  Low,
-			}
-			if sp.Value < lv {
-				sp.Trend = -1
-				sp.Type = LowerLow
-				lv = sp.Value
-			} else {
-				sp.Trend = 1
-				sp.Type = HigherLow
-				lv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-	}
-	for i := 1; i < len(tmp); i++ {
-		c := &tmp[i]
-		p := tmp[i-1]
-		c.Delta = c.Value - p.Value
-	}
-	for i := 0; i < len(tmp); i++ {
-		c := &tmp[i]
-		for j := c.Index; j < m.Rows; j++ {
-			if c.BaseType == High && m.DataRows[j].High() > c.Value {
-				c.Broken = true
-			}
-			if c.BaseType == Low && m.DataRows[j].Low() < c.Value {
-				c.Broken = true
-			}
-		}
-	}
-	return tmp
-}
-
-func (m *Matrix) FindTurningPoints(field int) SwingPoints {
-	var tmp SwingPoints
-	lv := 0.0
-	hv := 0.0
-	for i := 1; i < m.Rows-1; i++ {
-		p := m.DataRows[i-1]
-		c := m.DataRows[i]
-		n := m.DataRows[i+1]
-		if p.Get(field) < c.Get(field) && n.Get(field) < c.Get(field) {
-			sp := SwingPoint{
-				Timestamp: c.Key,
-				Type:      High,
-				Value:     c.Get(field),
-				Price:     c.Get(field),
-				Index:     i,
-				BaseType:  High,
-			}
-			if sp.Value > hv {
-				sp.Type = HigherHigh
-				hv = sp.Value
-			} else {
-				sp.Type = LowerHigh
-				hv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-		if p.Get(field) > c.Get(field) && n.Get(field) > c.Get(field) {
-			sp := SwingPoint{
-				Timestamp: c.Key,
-				Type:      Low,
-				Value:     c.Get(field),
-				Price:     c.Get(field),
-				Index:     i,
-				BaseType:  Low,
-			}
-			if sp.Value < lv {
-				sp.Type = LowerLow
-				lv = sp.Value
-			} else {
-				sp.Type = HigherLow
-				lv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-	}
-	return tmp
-}
-
-func (m *Matrix) Fractals(size int) SwingPoints {
-	var tmp SwingPoints
-	dist := size / 2
-	lv := 0.0
-	hv := 0.0
-	for i := dist; i < m.Rows-dist; i++ {
-		c := m.DataRows[i]
-		ch := 0
-		cl := 0
-		for j := 1; j <= dist; j++ {
-			idx := i - j
-			if m.DataRows[idx].High() > c.High() {
-				ch++
-			}
-			if m.DataRows[idx].Low() < c.Low() {
-				cl++
-			}
-			idx = i + j
-			if m.DataRows[idx].High() > c.High() {
-				ch++
-			}
-			if m.DataRows[idx].Low() < c.Low() {
-				cl++
-			}
-		}
-		if ch == 0 {
-			sp := SwingPoint{
-				Timestamp: c.Key,
-				Type:      High,
-				Value:     c.Get(1),
-				Price:     c.Get(4),
-				Index:     i,
-				BaseType:  High,
-			}
-			if sp.Value > hv {
-				sp.Type = HigherHigh
-				sp.Trend = 1
-				hv = sp.Value
-			} else {
-				sp.Trend = -1
-				sp.Type = LowerHigh
-				hv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-		if cl == 0 {
-			sp := SwingPoint{
-				Timestamp: c.Key,
-				Type:      Low,
-				Value:     c.Get(2),
-				Price:     c.Get(4),
-				Index:     i,
-				BaseType:  Low,
-			}
-			if sp.Value < lv {
-				sp.Trend = -1
-				sp.Type = LowerLow
-				lv = sp.Value
-			} else {
-				sp.Trend = 1
-				sp.Type = HigherLow
-				lv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-	}
-	for i := 1; i < len(tmp); i++ {
-		c := &tmp[i]
-		p := tmp[i-1]
-		c.Delta = c.Value - p.Value
-	}
-	for i := 0; i < len(tmp); i++ {
-		c := &tmp[i]
-		for j := c.Index; j < m.Rows; j++ {
-			if c.BaseType == High && m.DataRows[j].High() > c.Value {
-				c.Broken = true
-			}
-			if c.BaseType == Low && m.DataRows[j].Low() < c.Value {
-				c.Broken = true
-			}
-		}
-	}
-	return tmp
-}
-
-func (m *Matrix) FindSwingPointsByField(field int) SwingPoints {
-	var tmp SwingPoints
-	lv := 0.0
-	hv := 0.0
-	for i := 2; i < m.Rows-2; i++ {
-		p1 := m.DataRows[i-2]
-		p2 := m.DataRows[i-1]
-		pc := m.DataRows[i]
-		p3 := m.DataRows[i+1]
-		p4 := m.DataRows[i+2]
-		if p1.Get(field) < pc.Get(field) && p2.Get(field) < pc.Get(field) && p3.Get(field) < pc.Get(field) && p4.Get(field) < pc.Get(field) {
-			sp := SwingPoint{
-				Timestamp: pc.Key,
-				Type:      High,
-				Value:     pc.Get(field),
-				Price:     pc.Get(4),
-				Index:     i,
-				BaseType:  High,
-			}
-			if sp.Value > hv {
-				sp.Type = HigherHigh
-				hv = sp.Value
-			} else {
-				sp.Type = LowerHigh
-				hv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-		if p1.Get(field) > pc.Get(field) && p2.Get(field) > pc.Get(field) && p3.Get(field) > pc.Get(field) && p4.Get(field) > pc.Get(field) {
-			sp := SwingPoint{
-				Timestamp: pc.Key,
-				Type:      Low,
-				Value:     pc.Get(field),
-				Price:     pc.Get(4),
-				Index:     i,
-				BaseType:  Low,
-			}
-			if sp.Value < lv {
-				sp.Type = LowerLow
-				lv = sp.Value
-			} else {
-				sp.Type = HigherLow
-				lv = sp.Value
-			}
-			tmp = append(tmp, sp)
-		}
-	}
-	return tmp
-}
 
 func (m *Matrix) Sublist(start, count int) *Matrix {
 	ret := NewMatrix(m.Cols)
+	ret.Headers = m.Headers
 	end := start + count
 	if end > m.Rows {
 		end = m.Rows
@@ -1357,6 +1124,15 @@ func (m *Matrix) Filter(compare func(m *Matrix, index int) bool) *Matrix {
 	return ret
 }
 
+func (m *Matrix) Copy() *Matrix {
+	ret := NewMatrix(m.Cols)
+	for i := 0; i < m.Rows; i++ {
+		ret.DataRows = append(ret.DataRows, m.DataRows[i])
+		ret.Rows++
+	}
+	return ret
+}
+
 func (m *Matrix) FilterByKeysStraight(start, end string) *Matrix {
 	ret := NewMatrix(m.Cols)
 	for i := 0; i < m.Rows; i++ {
@@ -1390,7 +1166,7 @@ func CalculateStandardDeviation(numbers []float64) float64 {
 
 func (m *Matrix) StdDev(field, period int) int {
 	ret := m.AddColumn()
-	vol := m.GetColum(field)
+	vol := m.GetColumn(field)
 	for j := 0; j < len(vol)-period; j++ {
 		window := vol[j : j+period]
 		stdDev := CalculateStandardDeviation(window)
@@ -1578,6 +1354,7 @@ func LoadMatrix(fileName string) (*Matrix, error) {
 	return m, nil
 }
 
+/*
 type ValueMapEntry struct {
 	Key   string
 	Value float64
@@ -1636,3 +1413,4 @@ func (vm *ValueMap) IndexOf(key string) int {
 	}
 	return -1
 }
+*/

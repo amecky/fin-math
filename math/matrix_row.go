@@ -2,12 +2,13 @@ package math
 
 import (
 	"fmt"
+	ma "math"
 	"strings"
 )
 
 func (m *MatrixRow) Set(index int, value float64) *MatrixRow {
 	if m != nil {
-		if index < m.Num {
+		if index < len(m.Values) {
 			m.Values[index] = value
 		}
 		return m
@@ -52,6 +53,34 @@ func (m *MatrixRow) IsGreen() bool {
 
 func (m *MatrixRow) IsRed() bool {
 	return m.Get(4) < m.Get(0)
+}
+
+func (m *MatrixRow) LowerWick() float64 {
+	rng := m.High() - m.Low()
+	if rng == 0.0 {
+		return 0.0
+	}
+	lw := ma.Min(m.Open(), m.Close()) - m.Low()
+	return lw / rng
+}
+
+func (m *MatrixRow) UpperWick() float64 {
+	rng := m.High() - m.Low()
+	if rng == 0.0 {
+		return 0.0
+	}
+	uw := m.High() - ma.Max(m.Open(), m.Close())
+	return uw / rng
+}
+
+func (m *MatrixRow) Body() float64 {
+	rng := m.High() - m.Low()
+	if rng == 0.0 {
+		return 0.0
+	}
+	uw := m.High() - ma.Max(m.Open(), m.Close())
+	lw := ma.Min(m.Open(), m.Close()) - m.Low()
+	return (rng - uw - lw) / rng
 }
 
 func (m *MatrixRow) IsInRange(other MatrixRow) bool {

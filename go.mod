@@ -1,6 +1,6 @@
 module github.com/amecky/fin-math
 
-go 1.21
+go 1.24.3
 
 require (
 	github.com/alecthomas/assert/v2 v2.11.0 // indirect

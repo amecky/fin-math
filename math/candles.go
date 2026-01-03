@@ -48,6 +48,7 @@ func ConvertMatrixRow(mr MatrixRow) CandleDesc {
 	if mr.Get(0) > mr.Get(4) {
 		cd.Trend = -1
 		cd.Rejection = cd.Lower
+
 	} else {
 		cd.Trend = 1
 		cd.Rejection = cd.Upper
@@ -123,7 +124,7 @@ func getOpenOrderBlocks(blocks []OrderBlock, candles *Matrix) []OrderBlock {
 	for _, ob := range blocks {
 		filled = append(filled, ob.Gap)
 	}
-	for i := 0; i < len(blocks); i++ {
+	for i := range len(blocks) {
 		ob := &blocks[i]
 		log.Println("==>", ob)
 		for j := ob.Index + 1; j < candles.Rows; j++ {
@@ -148,7 +149,8 @@ func getOpenOrderBlocks(blocks []OrderBlock, candles *Matrix) []OrderBlock {
 	nr := make([]OrderBlock, 0)
 	for i, o := range blocks {
 		if filled[i] > 0.0 {
-			o.Filled = filled[i] / o.Gap * 100.0
+			o.Filled = (1.0 - filled[i]/o.Gap) * 100.0
+			o.Mid = o.Lower + (o.Upper-o.Lower)/2.0
 			nr = append(nr, o)
 		}
 	}
@@ -157,7 +159,7 @@ func getOpenOrderBlocks(blocks []OrderBlock, candles *Matrix) []OrderBlock {
 
 func GetOrderBlocks(candles *Matrix) []OrderBlock {
 	ret := make([]OrderBlock, 0)
-	fi := FairValueGaps(candles, false)
+	fi := FairValueGaps(candles, false, 1.5)
 	log.Println("--------------- OB -----------------------")
 	for _, f := range fi {
 		log.Println(f)
@@ -181,14 +183,15 @@ func GetOrderBlocks(candles *Matrix) []OrderBlock {
 	return getOpenOrderBlocks(ret, candles)
 }
 
-func FairValueGaps(candles *Matrix, open bool) []OrderBlock {
+func FairValueGaps(candles *Matrix, open bool, bodyMultiplier float64) []OrderBlock {
 	//threshold = auto ? ta.cum((high - low) / low) / bar_index : thresholdPer / 100
 	//bull_fvg = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > threshold
 	//bear_fvg = high < low[2] and close[1] < low[2] and (low[2] - high) / high > threshold
-	threshold := 0.5
-	atr := ATR(candles, 14)
+	avgBody := candles.Apply(func(mr MatrixRow) float64 {
+		return m.Abs(mr.Close() - mr.Open())
+	})
 	ret := make([]OrderBlock, 0)
-	bs := NewBitSet("c.Low() > p2.High()", "p1.Close() > p2.High()", fmt.Sprintf("delta > %.2f*c.Get(atr)", threshold))
+	bs := NewBitSet("c.Low() > p2.High()", "p1.Close() > p2.High()", fmt.Sprintf("p1.body > %.2f*averageBody", bodyMultiplier))
 	for i := 2; i < candles.Rows; i++ {
 		bs.ClearAll()
 		c := candles.Row(i)
@@ -196,10 +199,9 @@ func FairValueGaps(candles *Matrix, open bool) []OrderBlock {
 		p2 := candles.Row(i - 2)
 		bs.SetState(0, c.Low() > p2.High())
 		bs.SetState(1, p1.Close() > p2.High())
+		bs.SetState(2, p1.Close() > p2.High())
 		delta := c.Low() - p2.High()
-		bs.SetState(2, delta > threshold*c.Get(atr))
-		log.Println("BULL", c.Key, "=", bs)
-
+		bs.SetState(2, m.Abs(p1.Open()-p1.Close()) > c.Get(avgBody)*bodyMultiplier)
 		if bs.AllSet() {
 			ret = append(ret, OrderBlock{
 				Key:   c.Key,
@@ -216,28 +218,20 @@ func FairValueGaps(candles *Matrix, open bool) []OrderBlock {
 		bs.SetState(0, c.High() < p2.Low())
 		bs.SetState(1, p1.Close() < p2.High())
 		delta = p2.Low() - c.High()
-		bs.SetState(2, delta > threshold*c.Get(atr))
-		log.Println("BEAR", c.Key, "=", bs)
+		bs.SetState(2, m.Abs(p1.Open()-p1.Close()) > c.Get(avgBody)*bodyMultiplier)
 		if bs.AllSet() {
 			delta := p2.Low() - c.High()
-			if delta > threshold*c.Get(atr) {
-				ret = append(ret, OrderBlock{
-					Key:   c.Key,
-					Upper: p2.Low(),
-					Lower: c.High(),
-					Mid:   c.High() + (p2.Low()-c.High())/2.0,
-					Gap:   delta,
-					Index: i,
-					Type:  -1,
-				})
-			}
+			ret = append(ret, OrderBlock{
+				Key:   c.Key,
+				Upper: p2.Low(),
+				Lower: c.High(),
+				Mid:   c.High() + delta/2.0, //c.High() + (p2.Low()-c.High())/2.0,
+				Gap:   delta,
+				Index: i,
+				Type:  -1,
+			})
 		}
 	}
-	log.Println("-----------------------------")
-	for _, f := range ret {
-		log.Println(f)
-	}
-	log.Println("-----------------------------")
 	if open {
 		return getOpenOrderBlocks(ret, candles)
 	}
@@ -306,33 +300,34 @@ func OrderBlocks(candles *Matrix) int {
 func FVG(candles *Matrix) int {
 	// 0 = Upper 1 = Lower 2 = Type 3 = Filled 4 = Gap
 	// 0 = FVG 1 = Filled 2 = gap
-
 	upper := candles.AddColumn()
 	lower := candles.AddColumn()
 	tp := candles.AddColumn()
 	//bu := candles.AddColumn()
 	filled := candles.AddColumn()
 	gap := candles.AddColumn()
-	for i := 0; i < candles.Rows; i++ {
-		if i > 1 {
-			c := candles.Row(i)
-			p1 := candles.Row(i - 1)
-			p2 := candles.Row(i - 2)
-			// bull_fvg = low > high[2] and close[1] > high[2]
-			if c.Low() > p2.High() && p1.Close() > p2.High() {
-				c.Set(upper, c.Low())
-				c.Set(lower, p2.High())
-				c.Set(tp, 1.0)
-				d := c.Low() - p2.High()
-				c.Set(gap, d)
-			} else if c.High() < p2.Low() && p1.Close() < p2.High() {
-				// bear_fvg = high < low[2] and close[1] < low[2]
-				c.Set(upper, p2.Low())
-				c.Set(lower, c.High())
-				c.Set(tp, -1.0)
-				d := p2.Low() - c.High()
-				c.Set(gap, d)
-			}
+	bodyMultiplier := 1.5
+	avgBody := candles.Apply(func(mr MatrixRow) float64 {
+		return m.Abs(mr.Close() - mr.Open())
+	})
+	for i := 2; i < candles.Rows; i++ {
+		c := candles.Row(i)
+		p1 := candles.Row(i - 1)
+		p2 := candles.Row(i - 2)
+		// bull_fvg = c.low > high[2] and close[1] > high[2] and body[1] > mul * averageBody
+		if c.Low() > p2.High() && p1.Close() > p2.High() && m.Abs(p1.Close()-p1.Open()) > c.Get(avgBody)*bodyMultiplier {
+			c.Set(upper, c.Low())
+			c.Set(lower, p2.High())
+			c.Set(tp, 1.0)
+			d := c.Low() - p2.High()
+			c.Set(gap, d)
+		} else if c.High() < p2.Low() && p1.Close() < p2.High() && m.Abs(p1.Close()-p1.Open()) > c.Get(avgBody)*bodyMultiplier {
+			// bear_fvg = high < low[2] and close[1] < low[2] and body[1] > mul * averageBody
+			c.Set(upper, p2.Low())
+			c.Set(lower, c.High())
+			c.Set(tp, -1.0)
+			d := p2.Low() - c.High()
+			c.Set(gap, d)
 		}
 	}
 	// check for filled FVG
@@ -380,12 +375,14 @@ func RelativeCandleDescriptors(candles *Matrix) int {
 	for i := 0; i < candles.Rows; i++ {
 		c := candles.DataRows[i]
 		cd := ConvertMatrixRow(c)
-		c.Set(up, cd.Upper/cd.Range*100.0)
-		c.Set(bs, cd.Body/cd.Range*100.0)
-		c.Set(lo, cd.Lower/cd.Range*100.0)
-		c.Set(rng, cd.Range)
-		c.Set(trn, float64(cd.Trend))
-		c.Set(rj, cd.Rejection/cd.Range*100.0)
+		if cd.Range > 0.0 {
+			c.Set(up, cd.Upper/cd.Range*100.0)
+			c.Set(bs, cd.Body/cd.Range*100.0)
+			c.Set(lo, cd.Lower/cd.Range*100.0)
+			c.Set(rng, cd.Range)
+			c.Set(trn, float64(cd.Trend))
+			c.Set(rj, cd.Rejection/cd.Range*100.0)
+		}
 	}
 	return up
 }

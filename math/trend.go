@@ -346,3 +346,394 @@ func invertMatrix(matrix [][]float64) [][]float64 {
 	}
 	return inv
 }
+
+// https://wire.insiderfinance.io/trading-tip-practical-way-to-know-when-the-markets-out-of-fuel-0be834979f25
+func StableATR(m *Matrix, period int) float64 {
+	// Step 1: Compute True Range (TR)
+	tr := TrueRange(m)
+	// Step 2: Take last N TR values
+	mn := m.DataRows[m.Rows-period].Get(tr)
+	for i := m.Rows - period + 1; i < m.Rows; i++ {
+		if m.DataRows[i].Get(tr) < mn {
+			mn = m.DataRows[i].Get(tr)
+		}
+	}
+	// Step 3: Outlier check
+	cnt := 0
+	for i := m.Rows - period; i < m.Rows; i++ {
+		if m.DataRows[i].Get(tr) <= 2.0*mn {
+			cnt++
+		}
+	}
+	if cnt < 3 {
+		return 0.0
+	}
+
+	// Step 4: Stability filter
+	//SET median_tr = MEDIAN(last_tr)
+	md := SMA(m, period, tr)
+	median := m.Last().Get(md)
+	filtered := make([]float64, 0)
+	for i := m.Rows - period; i < m.Rows; i++ {
+		if m.DataRows[i].Get(tr) >= 0.5*median && m.DataRows[i].Get(tr) <= 1.5*median {
+			filtered = append(filtered, m.DataRows[i].Get(tr))
+		}
+	}
+	//SET filtered = values in last_tr WHERE value BETWEEN 0.5 * median_tr AND 1.5 * median_tr
+	//IF LENGTH(filtered) < 3:
+	//    RETURN None
+	if len(filtered) < 3 {
+		return 0.0
+	}
+	// Step 5: Compute average of filtered
+	val := 0.0
+	for _, v := range filtered {
+		val += v
+	}
+	return val / float64(len(filtered))
+
+}
+
+type TrendAggregate struct {
+	Start     int
+	End       int
+	Direction int
+	Count     int
+}
+
+func myTrend(m *Matrix, field int) int {
+	// 0 = Trend
+	ret := m.AddNamedColumn("Trend")
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		p := m.DataRows[i-1]
+		val := p.Get(ret)
+		if c.IsRed() {
+			if p.Get(ret) < 0.0 {
+				val -= 1.0
+			} else {
+				val = -1.0
+			}
+		}
+		if c.IsGreen() {
+			if p.Get(ret) > 0.0 {
+				val += 1.0
+			} else {
+				val = 1.0
+			}
+		}
+		m.DataRows[i].Set(ret, val)
+	}
+	return ret
+}
+
+func AggregateTrend(m *Matrix) []TrendAggregate {
+	trend := myTrend(m, 4)
+	start := 0
+	ret := make([]TrendAggregate, 1)
+	for i := 2; i < m.Rows; i++ {
+		c := m.DataRows[i].Get(trend)
+		p := m.DataRows[i-1].Get(trend)
+
+		if c > 0.0 && p < 0.0 {
+			ret = append(ret, TrendAggregate{
+				Start:     start,
+				End:       i - 1,
+				Direction: -1,
+				Count:     int(ma.Abs(p)),
+			})
+			start = i
+		}
+		if c < 0.0 && p > 0.0 {
+			ret = append(ret, TrendAggregate{
+				Start:     start,
+				End:       i - 1,
+				Direction: 1,
+				Count:     int(ma.Abs(p)),
+			})
+			start = i
+		}
+	}
+	if start != m.Rows-1 {
+		dir := 1
+		if m.Last().Get(trend) < 0.0 {
+			dir = -1
+		}
+		ret = append(ret, TrendAggregate{
+			Start:     start,
+			End:       m.Rows - 1,
+			Direction: dir,
+			Count:     int(ma.Abs(m.Last().Get(trend))),
+		})
+	}
+
+	return ret
+}
+
+func PercentageChange(m *Matrix, field int) int {
+	// 0 = change percentage
+	ret := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i].Get(field)
+		p := m.DataRows[i-1].Get(field)
+		m.DataRows[i].Set(ret, (c-p)/p*100.0)
+	}
+	return ret
+}
+
+// calculateReturns computes percentage change between consecutive closes.
+func calculateReturns(m *Matrix) int {
+	ret := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		m.DataRows[i-1].Set(ret, (m.DataRows[i].Close()-m.DataRows[i-1].Close())/m.DataRows[i-1].Close())
+	}
+	return ret
+}
+
+// internalShannonEntropy calculates Shannon entropy (in bits) from float64 values.
+// It bins the values into a histogram and then computes Σ -p * log2(p)
+func internalShannonEntropy(values []float64, bins int) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	// Find min and max
+	minVal, maxVal := values[0], values[0]
+	for _, v := range values {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+
+	if minVal == maxVal {
+		return 0 // no variation
+	}
+
+	// Build histogram
+	hist := make([]int, bins)
+	for _, v := range values {
+		idx := int((v - minVal) / (maxVal - minVal) * float64(bins-1))
+		hist[idx]++
+	}
+
+	// Convert to probabilities
+	total := float64(len(values))
+	entropy := 0.0
+	for _, count := range hist {
+		if count == 0 {
+			continue
+		}
+		p := float64(count) / total
+		entropy -= p * ma.Log2(p)
+	}
+	return entropy
+}
+
+func ShannonEntropy(m *Matrix, windowSize int, bins int) int {
+	returns := calculateReturns(m)
+	entropies := m.AddNamedColumn("Shannon Entropy")
+	for i := 0; i < m.Rows-windowSize; i++ {
+		window := m.GetPartialColumn(returns, i, i+windowSize)
+		m.DataRows[i+windowSize].Set(entropies, internalShannonEntropy(window, bins))
+	}
+	return entropies
+}
+
+func ConvertRBD(v float64) string {
+	types := []string{"RBD", "RBR", "DBD", "DBR"}
+	it := max(min(int(v)-1, 3), 0)
+	return types[it]
+}
+
+const (
+	RDB_R   = 1.0
+	RDB_D   = 2.0
+	RDB_B   = 3.0
+	RDB_RBD = 1.0
+	RDB_RBR = 2.0
+	RDB_DBD = 3.0
+	RDB_DBR = 4.0
+)
+
+// https://www.youtube.com/watch?v=4Jwq2SALZKA
+func RBD(m *Matrix) int {
+	// 0 = RBD Type
+	tmp := m.AddNamedColumn("RBDType")
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		p := m.DataRows[i-1]
+		gc := c.Close() > c.Open()
+		rc := c.Close() < c.Open()
+		pgc := p.Close() > p.Open()
+		prc := p.Close() < p.Open()
+
+		rally := gc && pgc
+		drop := rc && prc
+		base := !rally && !drop
+
+		tp := 0.0
+		if rally {
+			tp = RDB_R
+		}
+		if drop {
+			tp = RDB_D
+		}
+		if base {
+			tp = RDB_B
+		}
+		m.DataRows[i].Set(tmp, tp)
+	}
+	ret := m.AddNamedColumn("RBD")
+	for i := 2; i < m.Rows; i++ {
+		c := m.DataRows[i].Get(tmp)
+		p1 := m.DataRows[i-1].Get(tmp)
+		p2 := m.DataRows[i-2].Get(tmp)
+		if p2 == RDB_R && p1 == RDB_B && c == RDB_D {
+			m.DataRows[i].Set(ret, RDB_RBD)
+		}
+		if p2 == RDB_R && p1 == RDB_B && c == RDB_R {
+			m.DataRows[i].Set(ret, RDB_RBR)
+		}
+		if p2 == RDB_D && p1 == RDB_B && c == RDB_B {
+			m.DataRows[i].Set(ret, RDB_DBD)
+		}
+		if p2 == RDB_D && p1 == RDB_B && c == RDB_R {
+			m.DataRows[i].Set(ret, RDB_DBR)
+		}
+
+	}
+	return ret
+}
+
+func NRX(m *Matrix, period int) int {
+	// 0 = 1 if NR
+	ret := m.AddColumn()
+	rng := Range(m)
+	for i := period; i < m.Rows; i++ {
+		cur := m.DataRows[i].Get(rng)
+		cnt := 0
+		for j := range period - 1 {
+			cmp := m.DataRows[i-j-1].Get(rng)
+			if cmp > cur {
+				cnt++
+			}
+		}
+		if cnt == period-1 {
+			m.DataRows[i].Set(ret, 1.0)
+		}
+	}
+	return ret
+}
+
+func HLBand(m *Matrix, period int) int {
+	// 0 = Upper 1 = Lower
+	upper := m.AddColumn()
+	lower := m.AddColumn()
+	high := SMA(m, period, 4)
+	low := SMA(m, period, 4)
+	hlAvg := m.Apply(func(mr MatrixRow) float64 {
+		return mr.Get(high) - mr.Get(low)
+	})
+	for i := range m.Rows {
+		c := m.DataRows[i]
+		m.DataRows[i].Set(upper, c.Get(high))
+		m.DataRows[i].Set(lower, c.Get(high)-c.Get(hlAvg))
+	}
+	//data['HL_avg'] = data['High'].rolling(window=25).mean() - data['Low'].rolling(window=25).mean()
+	//data['Band'] = data['High'].rolling(window=25).mean() - (data['HL_avg'] * 2.25)
+	m.RemoveColumns(2)
+	return upper
+}
+
+/*
+Calculate HLC3 (average of high, low, close prices)
+Apply 9-period EMA to HLC3
+Calculate deviation from the EMA
+Create Fast Wave using 12-period EMA
+Create Slow Wave as 3-period moving average of Fast Wave
+Calculate Delta as the difference between Fast and Slow waves
+*/
+func Wave(m *Matrix, period, fast, slow int) int {
+	// 0 = Fast Wave 1 = Slow Wave 2 = Delta
+	fc := m.AddColumn()
+	sc := m.AddColumn()
+	delta := m.AddColumn()
+	hlc := HLC3(m)
+	eh := EMA(m, period, hlc)
+	std := m.StdDev(eh, period)
+	fe := EMA(m, fast, std)
+	se := EMA(m, slow, fe)
+	deltaWaves := m.Apply(func(mr MatrixRow) float64 {
+		return mr.Get(fe) - mr.Get(se)
+	})
+	for i := 0; i < m.Rows; i++ {
+		m.DataRows[i].Set(fc, m.DataRows[i].Get(fe))
+		m.DataRows[i].Set(sc, m.DataRows[i].Get(se))
+		m.DataRows[i].Set(delta, m.DataRows[i].Get(deltaWaves))
+	}
+	m.RemoveColumns(6)
+	return fc
+}
+
+func Correlation(m *Matrix, period, first, second int) int {
+	ret := m.AddColumn()
+	n := float64(period)
+	var sumX, sumY, sumXY, sumX2, sumY2 float64
+	for i := period; i < m.Rows; i++ {
+		sumX, sumY, sumXY, sumX2, sumY2 = 0.0, 0.0, 0.0, 0.0, 0.0
+		for j := range period {
+			idx := i - period + j
+			sumX += m.DataRows[idx].Get(first)
+			sumY += m.DataRows[idx].Get(second)
+			sumXY += m.DataRows[idx].Get(first) * m.DataRows[idx].Get(second)
+			sumX2 += m.DataRows[idx].Get(first) * m.DataRows[idx].Get(first)
+			sumY2 += m.DataRows[idx].Get(second) * m.DataRows[idx].Get(second)
+		}
+		num := n*sumXY - sumX*sumY
+		den := ma.Sqrt((n*sumX2 - sumX*sumX) * (n*sumY2 - sumY*sumY))
+		if den == 0 {
+			return 0
+		}
+		m.DataRows[i].Set(ret, num/den)
+	}
+
+	return ret
+}
+
+func StretchMove(m *Matrix, atrPeriod, lookback int) int {
+	// 0 = Low StretchMove 1 = High StretchMove
+	lo := m.AddColumn()
+	hi := m.AddColumn()
+	atr := ATR(m, atrPeriod)
+	for i := lookback; i < m.Rows; i++ {
+		// low
+		idx := m.FindLowestIndex(i-lookback, lookback)
+		cur := m.DataRows[i].Close()
+		delta := ma.Abs(m.DataRows[idx].Low() - cur)
+		m.DataRows[i].Set(lo, delta/m.DataRows[i].Get(atr))
+		// high
+		idx = m.FindHighestIndex(i-lookback, lookback)
+		delta = ma.Abs(m.DataRows[idx].High() - cur)
+		m.DataRows[i].Set(hi, delta/m.DataRows[i].Get(atr))
+	}
+	return lo
+}
+
+func ATRRegime(m *Matrix, atrPeriod, lookback int) int {
+	// 0 = ATR Regime
+	ret := m.AddNamedColumn("ATRRegime")
+	atr := ATR(m, atrPeriod)
+	// 	vol_threshold = df['ATR'].rolling(100).quantile(0.7)
+	q := RollingQuantile(m, atr, lookback, 0.7)
+	//df['regime'] = (df['ATR'] < vol_threshold).astype(int)
+	for i := range m.Rows {
+		c := m.DataRows[i]
+		if c.Get(atr) >= c.Get(q) {
+			m.DataRows[i].Set(ret, 1.0)
+		}
+	}
+	return ret
+}

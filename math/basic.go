@@ -1,5 +1,10 @@
 package math
 
+import (
+	"math"
+	"sort"
+)
+
 // -----------------------------------------------------------------------
 // HL2 - (high+low)/2
 // -----------------------------------------------------------------------
@@ -72,5 +77,73 @@ func Highest(m *Matrix, period, field int) int {
 		}
 		m.DataRows[i].Set(ret, h)
 	}
+	return ret
+}
+
+func Quantile(m *Matrix, limit float64, field int) int {
+	ret := m.AddNamedColumn("Quantile")
+	for i := 0; i < m.Rows; i++ {
+		h := m.DataRows[i].Get(field)
+		if h >= limit {
+			m.DataRows[i].Set(ret, 1.0)
+		}
+	}
+	return ret
+}
+
+func Quantiles(m *Matrix, lower, upper float64, field int) int {
+	ret := m.AddNamedColumn("Quantiles")
+	for i := 0; i < m.Rows; i++ {
+		h := m.DataRows[i].Get(field)
+		if h <= lower {
+			m.DataRows[i].Set(ret, -1.0)
+		}
+		if h >= upper {
+			m.DataRows[i].Set(ret, 1.0)
+		}
+	}
+	return ret
+}
+
+// Standard pandas-style quantile (from earlier)
+func internalQuantile(data []float64, q float64) float64 {
+	tmp := make([]float64, len(data))
+	copy(tmp, data)
+	sort.Float64s(tmp)
+
+	pos := (float64(len(tmp) - 1)) * q
+	i := int(math.Floor(pos))
+	f := pos - float64(i)
+
+	if f == 0 {
+		return tmp[i]
+	}
+	return tmp[i] + f*(tmp[i+1]-tmp[i])
+}
+
+// RollingQuantile calculates rolling quantiles like pandas.
+// window = lookback period (e.g. 14)
+// q = quantile (0.75 = 75th percentile)
+func RollingQuantile(m *Matrix, field, window int, q float64) int {
+	ret := m.AddColumn()
+	//result := make([]float64, len(data))
+	var win []float64
+	for i := 0; i < m.Rows; i++ {
+
+		// grow window until full
+		win = append(win, m.DataRows[i].Get(field))
+
+		// once full, drop oldest
+		if len(win) > window {
+			win = win[1:]
+		}
+
+		if len(win) < window {
+			//	result[i] = math.NaN() // not enough data yet
+			continue
+		}
+		m.DataRows[i].Set(ret, internalQuantile(win, q))
+	}
+
 	return ret
 }

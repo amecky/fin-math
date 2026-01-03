@@ -139,6 +139,28 @@ func SMA(m *Matrix, days, field int) int {
 // -----------------------------------------------------------------------
 // SMA - Simple moving average
 // -----------------------------------------------------------------------
+func WeightedMA(m *Matrix, days, field int) int {
+	ret := m.AddNamedColumn(fmt.Sprintf("WeightedMA%d", days))
+	n := 0.0
+	for i := range days {
+		n += float64(i + 1)
+	}
+	for i := range m.Rows {
+		if i >= days-1 {
+			sum := 0.0
+			for j := range days {
+				sum += m.DataRows[i-days+j+1].Get(field) * float64(j+1)
+			}
+			avg := sum / n
+			m.DataRows[i].Set(ret, avg)
+		}
+	}
+	return ret
+}
+
+// -----------------------------------------------------------------------
+// SMA - Simple moving average
+// -----------------------------------------------------------------------
 func ShiftedSMA(m *Matrix, days, offset, field int) int {
 	ret := m.AddNamedColumn(fmt.Sprintf("SMA%d", days))
 	n := float64(days)
@@ -226,7 +248,7 @@ func WMA(m *Matrix, days, field int) int {
 	n := float64(days)
 	for i := days - 1; i < m.Rows; i++ {
 		sum := 0.0
-		for j := 0; j < days; j++ {
+		for j := range days {
 			idx := i - days + 1 + j
 			row := m.DataRows[idx]
 			sum += row.Get(field) * float64(j+1)
@@ -301,6 +323,39 @@ func ZLSMA(m *Matrix, days, field int) int {
 	m.CopyColumn(ei, ret)
 	m.RemoveColumns(2)
 	return ret
+}
+
+// KAMA calculates Kaufman's Adaptive Moving Average.
+// fastPeriod = typically 2; slowPeriod = typically 30; erPeriod = typically 10.
+// func KAMA(prices []float64, erPeriod, fastPeriod, slowPeriod int) []float64 {
+func KAMA(m *Matrix, erPeriod, fastPeriod, slowPeriod int) int {
+	n := m.Rows
+	kama := m.AddColumn()
+	fastSC := 2.0 / (float64(fastPeriod) + 1)
+	slowSC := 2.0 / (float64(slowPeriod) + 1)
+
+	m.DataRows[erPeriod].Set(kama, m.DataRows[erPeriod].Close())
+
+	for i := erPeriod + 1; i < n; i++ {
+		// Efficiency Ratio (ER)
+		change := math.Abs(m.DataRows[i].Close() - m.DataRows[i-erPeriod].Close())
+		volatility := 0.0
+		for j := i - erPeriod + 1; j <= i; j++ {
+			volatility += math.Abs(m.DataRows[j].Close() - m.DataRows[j-1].Close())
+		}
+		var er float64
+		if volatility != 0 {
+			er = change / volatility
+		}
+
+		// Smoothing constant (SC)
+		sc := math.Pow(er*(fastSC-slowSC)+slowSC, 2)
+
+		// KAMA formula
+		m.DataRows[i].Set(kama, m.DataRows[i-1].Get(kama)+sc*(m.DataRows[i].Close()-m.DataRows[i-1].Get(kama)))
+	}
+
+	return kama
 }
 
 func MASlope(prices *Matrix, operator MAFunc, days, lookback int) int {
@@ -592,6 +647,28 @@ func MomentumExt(m *Matrix, days, smoothed, field int) int {
 
 // -----------------------------------------------------------------------
 //
+// # Change
+//
+// -----------------------------------------------------------------------
+func Change(m *Matrix, atr int) int {
+	// 0 = Absolute 1 = Relative 2 = Absolute / ATR
+	ret := m.AddColumn()
+	rel := m.AddColumn()
+	aa := m.AddColumn()
+	ai := ATR(m, atr)
+	for i := 1; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, m.DataRows[i].Close()-m.DataRows[i-1].Close())
+		m.DataRows[i].Set(rel, (m.DataRows[i].Get(ADJ_CLOSE)-m.DataRows[i-1].Get(ADJ_CLOSE))/m.DataRows[i-1].Get(ADJ_CLOSE)*100.0)
+		if m.DataRows[i].Get(ai) != 0.0 {
+			m.DataRows[i].Set(aa, ma.Abs(m.DataRows[i].Get(ret))/m.DataRows[i].Get(ai))
+		}
+	}
+	m.RemoveColumns(1)
+	return ret
+}
+
+// -----------------------------------------------------------------------
+//
 //	Daily Percentage Change
 //
 // -----------------------------------------------------------------------
@@ -600,6 +677,30 @@ func DPC(m *Matrix) int {
 	ret := m.AddColumn()
 	for i := 1; i < m.Rows; i++ {
 		m.DataRows[i].Set(ret, (m.DataRows[i].Get(ADJ_CLOSE)-m.DataRows[i-1].Get(ADJ_CLOSE))/m.DataRows[i-1].Get(ADJ_CLOSE)*100.0)
+	}
+	return ret
+}
+
+// calcReturns computes log returns
+func LogReturns(m *Matrix) int {
+	returns := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		r := math.Log(m.DataRows[i].Close() / m.DataRows[i-1].Close())
+		m.DataRows[i].Set(returns, r)
+	}
+	return returns
+}
+
+// -----------------------------------------------------------------------
+//
+//	Price percentage change
+//
+// -----------------------------------------------------------------------
+func PPCH(m *Matrix) int {
+	// 0 = percentage change of price
+	ret := m.AddColumn()
+	for i := 1; i < m.Rows; i++ {
+		m.DataRows[i].Set(ret, (m.DataRows[i].Close()-m.DataRows[i-1].Close())/m.DataRows[i-1].Close()*100.0)
 	}
 	return ret
 }
@@ -670,7 +771,7 @@ func ConsolidatedPriceDifference(m *Matrix, min int) int {
 // -----------------------------------------------------------------------
 func RSI(m *Matrix, days, field int) int {
 	// 0 = RSI
-	ret := m.AddNamedColumn("RSI")
+	ret := m.AddNamedColumn(fmt.Sprintf("RSI%d", days))
 	diff := m.AddColumn()
 	for i := 1; i < m.Rows; i++ {
 		m.DataRows[i].Set(diff, m.DataRows[i].Get(field)-m.DataRows[i-1].Get(field))
@@ -952,6 +1053,20 @@ func ROC(m *Matrix, days, field int) int {
 	return ret
 }
 
+// -----------------------------------------------------------------------
+// ROC
+// -----------------------------------------------------------------------
+func AbsoluteROC(m *Matrix, days, field int) int {
+	// 0 = ROC
+	ret := m.AddNamedColumn(fmt.Sprintf("ROC%d", days))
+	for i := days; i < m.Rows; i++ {
+		current := m.DataRows[i].Get(field)
+		prev := m.DataRows[i-days].Get(field)
+		m.DataRows[i].Set(ret, current-prev)
+	}
+	return ret
+}
+
 func Trend(m *Matrix) int {
 	// 0 = Trend
 	ret := m.AddNamedColumn("Trend")
@@ -991,13 +1106,38 @@ func DiffTrendCounter(m *Matrix, field int) int {
 func TrendCounter(m *Matrix, field int) int {
 	// 0 = Trend
 	ret := m.AddNamedColumn("Trend")
+	for i := 1; i < m.Rows; i++ {
+		c := m.DataRows[i]
+		p := m.DataRows[i-1]
+		val := p.Get(ret)
+		if c.IsRed() {
+			if p.Get(ret) < 0.0 {
+				val -= 1.0
+			} else {
+				val = -1.0
+			}
+		}
+		if c.IsGreen() {
+			if p.Get(ret) > 0.0 {
+				val += 1.0
+			} else {
+				val = 1.0
+			}
+		}
+		m.DataRows[i].Set(ret, val)
+	}
+	return ret
+}
+
+func ThresholdCounter(m *Matrix, threshold float64, field int) int {
+	// 0 = Trend
+	ret := m.AddNamedColumn("Trend")
 	dir := 0.0
 	cnt := 0.0
 	for i := 1; i < m.Rows; i++ {
 		c := m.DataRows[i].Get(field)
-		p := m.DataRows[i-1].Get(field)
 		curDir := 1.0
-		if c < p {
+		if c < threshold {
 			curDir = -1.0
 		}
 		if curDir != dir {
@@ -1423,7 +1563,7 @@ func BollingerBandWidth(m *Matrix, ema int, upper, lower float64) int {
 	for i := 0; i < m.Rows; i++ {
 		cb := m.DataRows[i]
 		if cb.Get(bb+2) != 0.0 {
-			m.DataRows[i].Set(ret, (cb.Get(bb)-cb.Get(bb+1))/cb.Get(bb+2))
+			m.DataRows[i].Set(ret, (cb.Get(bb)-cb.Get(bb+1))/cb.Get(bb+2)*100.0)
 		}
 	}
 	m.RemoveColumn()
@@ -1530,7 +1670,7 @@ func Keltner(m *Matrix, ema, atrLength int, multiplier float64) int {
 		m.DataRows[i].Set(lowIdx, m.DataRows[i].Get(ed)-multiplier*m.DataRows[i].Get(ad))
 		m.DataRows[i].Set(midIdx, m.DataRows[i].Get(ed))
 	}
-	m.RemoveColumns(4)
+	m.RemoveColumns(2)
 	return upIdx
 }
 
@@ -1547,6 +1687,21 @@ func DonchianChannel(m *Matrix, days int) int {
 	for i := days; i < m.Rows; i++ {
 		h := m.FindMaxBetween(1, i-days, days)
 		l := m.FindMinBetween(2, i-days, days)
+		m.DataRows[i].Set(upIdx, h)
+		m.DataRows[i].Set(lowIdx, l)
+		m.DataRows[i].Set(midIdx, (h+l)/2.0)
+	}
+	return upIdx
+}
+
+func DonchianChannelExt(m *Matrix, days, field int) int {
+	// 0 = Upper 1 = Lower 2 = Mid
+	upIdx := m.AddNamedColumn("Upper")
+	lowIdx := m.AddNamedColumn("Lower")
+	midIdx := m.AddNamedColumn("Mid")
+	for i := days; i < m.Rows; i++ {
+		h := m.FindMaxBetween(field, i-days, days)
+		l := m.FindMinBetween(field, i-days, days)
 		m.DataRows[i].Set(upIdx, h)
 		m.DataRows[i].Set(lowIdx, l)
 		m.DataRows[i].Set(midIdx, (h+l)/2.0)
@@ -1817,41 +1972,6 @@ func AveragePrice(m *Matrix) int {
 		return (mr.Get(HIGH) + mr.Get(LOW) + mr.Get(ADJ_CLOSE)) / 3.0
 	})
 	return ret
-}
-
-// -----------------------------------------------------------------------
-//
-//	VO
-//
-// -----------------------------------------------------------------------
-// https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/volume-oscillator
-// https://commodity.com/technical-analysis/volume-oscillator/
-func VO(m *Matrix, fast, slow int) int {
-	ret := m.AddColumn()
-	emaSlow := EMA(m, slow, VOLUME)
-	emaFast := EMA(m, fast, VOLUME)
-	for i := 0; i < m.Rows; i++ {
-		if m.DataRows[i].Get(emaSlow) != 0.0 {
-			vo := (m.DataRows[i].Get(emaFast) - m.DataRows[i].Get(emaSlow)) / m.DataRows[i].Get(emaSlow) * 100.0
-			m.DataRows[i].Set(ret, vo)
-		}
-	}
-	m.RemoveColumn()
-	m.RemoveColumn()
-	return ret
-}
-
-// -----------------------------------------------------------------------
-//
-//	AverageVolume
-//
-// -----------------------------------------------------------------------
-// https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/volume-oscillator
-// https://commodity.com/technical-analysis/volume-oscillator/
-func AverageVolume(m *Matrix, lookback int) int {
-	// 0 = SMA of volume
-	sma := SMA(m, lookback, 5)
-	return sma
 }
 
 // -----------------------------------------------------------------------
@@ -2197,34 +2317,43 @@ func DeMark(candles *Matrix) int {
 	return trend
 }
 
-// https://kaabar-sofien.medium.com/the-demarker-contrarian-indicator-a-study-in-python-2caa066a30e1
-func DeMarker(m *Matrix, days int) int {
+func simpleMovingAverage(data []float64, period int) float64 {
+	if len(data) < period || period <= 0 {
+		return math.NaN()
+	}
+	sum := 0.0
+	for _, v := range data[len(data)-period:] {
+		sum += v
+	}
+	return sum / float64(period)
+}
+
+func DeMarker(m *Matrix, period int) int {
 	// 0 = Trend
 	ret := m.AddNamedColumn("Demark")
-	ma := m.AddColumn()
-	mi := m.AddColumn()
+	deMax := make([]float64, m.Rows)
+	deMin := make([]float64, m.Rows)
+
 	for i := 1; i < m.Rows; i++ {
-		c := m.DataRows[i]
-		p := m.DataRows[i-1]
-		dh := c.Get(HIGH) - p.Get(HIGH)
-		if dh > 0.0 {
-			m.DataRows[i].Set(ma, dh)
+		dh := m.DataRows[i].High() - m.DataRows[i-1].High()
+		dl := m.DataRows[i-1].Low() - m.DataRows[i].Low()
+		if dh > 0 {
+			deMax[i] = dh
 		}
-		dl := p.Get(LOW) - c.Get(LOW)
-		if dl > 0.0 {
-			m.DataRows[i].Set(mi, dl)
+		if dl > 0 {
+			deMin[i] = dl
 		}
 
-	}
-	s1 := EMA(m, days, ma)
-	s2 := EMA(m, days, mi)
-	for i := 0; i < m.Rows; i++ {
-		s := m.DataRows[i].Get(s1) + m.DataRows[i].Get(s2)
-		if s != 0.0 {
-			m.DataRows[i].Set(ret, m.DataRows[i].Get(s1)/s)
+		if i >= period {
+			avgMax := simpleMovingAverage(deMax[:i+1], period)
+			avgMin := simpleMovingAverage(deMin[:i+1], period)
+			if (avgMax + avgMin) != 0 {
+				m.DataRows[i].Set(ret, avgMax/(avgMax+avgMin))
+			} else {
+				m.DataRows[i].Set(ret, 0.5)
+			}
 		}
 	}
-	m.RemoveColumns(4)
 	return ret
 }
 
@@ -3081,17 +3210,14 @@ func Choppiness(prices *Matrix, days int) int {
 	return ret
 }
 
-func Slope(prices *Matrix, days, lookback int, f MAFunc) int {
-	// 0 = SMA Slope
+func Slope(prices *Matrix, days, field int) int {
+	// 0 = Slope
 	ret := prices.AddColumn()
-	steps := float64(lookback)
-	si := f(prices, days, ADJ_CLOSE)
-	for i := lookback; i < prices.Rows; i++ {
-		cur := prices.DataRows[i].Get(si)
-		prev := prices.DataRows[i-lookback].Get(si)
-		prices.DataRows[i].Set(ret, (cur-prev)/steps)
+	for i := days; i < prices.Rows; i++ {
+		cur := prices.DataRows[i].Get(field)
+		prev := prices.DataRows[i-days].Get(field)
+		prices.DataRows[i].Set(ret, cur-prev)
 	}
-	prices.RemoveColumn()
 	return ret
 }
 
@@ -3180,6 +3306,41 @@ func ZScore(m *Matrix, lookback, field int) int {
 	return ZNormalization(m, lookback, field)
 }
 
+func NormalizeZScore(m *Matrix, field int) int {
+	n := m.Rows
+	if n == 0 {
+		return -1
+	}
+	ret := m.AddColumn()
+	// Compute mean
+	var sum float64
+	for _, v := range m.DataRows {
+		sum += v.Get(field)
+	}
+	mean := sum / float64(n)
+
+	// Compute standard deviation
+	var variance float64
+	for _, v := range m.DataRows {
+		diff := v.Get(field) - mean
+		variance += diff * diff
+	}
+	stdDev := math.Sqrt(variance / float64(n))
+
+	// Avoid division by zero if all values are identical
+	if stdDev == 0 {
+		return -1 // all zeros
+	}
+
+	// Normalize
+	//normalized := make([]float64, n)
+	for i, v := range m.DataRows {
+		m.DataRows[i].Set(ret, (v.Get(field)-mean)/stdDev)
+	}
+
+	return ret
+}
+
 // https://kaabar-sofien.medium.com/using-z-score-in-trading-a-python-study-5f4b21b41aa0
 // z = (close - ta.sma(close, len)) / ta.stdev(close, len)
 func ZNormalization(m *Matrix, lookback, field int) int {
@@ -3208,7 +3369,7 @@ func Normalization(m *Matrix, lookback, field int) int {
 		h := c.Get(hi)
 		l := c.Get(li)
 		if h != l {
-			s := (c.Get(field)-l)/(h-l) - 0.50
+			s := (c.Get(field) - l) / (h - l) // - 0.50
 			m.DataRows[i].Set(ret, s)
 		}
 	}
@@ -5059,34 +5220,32 @@ func UltimateRSI(cn *Matrix, length int) int {
 	return ret
 }
 
-func Range(cn *Matrix, ema int) int {
-	// 0 = Range 1 = EMA 2 = Relation
+func Range(cn *Matrix) int {
+	// 0 = Range
 	ret := cn.AddNamedColumn("Range")
 	for i := 0; i < cn.Rows; i++ {
 		c := &cn.DataRows[i]
 		c.Set(ret, c.High()-c.Low())
 	}
-	e := EMA(cn, ema, ret)
-	cn.Apply(func(mr MatrixRow) float64 {
-		if mr.Get(e) != 0.0 {
-			return mr.Get(ret) / mr.Get(e)
-		}
-		return 0.0
-	})
 	return ret
 }
 
 func Body(cn *Matrix, ema int) int {
 	// 0 = Body 1 = EMA 2 = Relation
-	ret := cn.AddNamedColumn("Range")
+	ret := cn.AddNamedColumn("Body")
+	rel := cn.AddNamedColumn("RelBody")
 	for i := 0; i < cn.Rows; i++ {
 		c := &cn.DataRows[i]
 		c.Set(ret, ma.Abs(c.Open()-c.Close()))
 	}
+	for i := 0; i < cn.Rows; i++ {
+		c := &cn.DataRows[i]
+		c.Set(rel, ma.Abs(c.Open()-c.Close())/(c.High()-c.Low())*100.0)
+	}
 	e := EMA(cn, ema, ret)
 	cn.Apply(func(mr MatrixRow) float64 {
 		if mr.Get(e) != 0.0 {
-			return mr.Get(ret) / mr.Get(e)
+			return mr.Get(ret) / mr.Get(e) * 100.0
 		}
 		return 0.0
 	})
@@ -5152,4 +5311,58 @@ func T3Oscilator(mat *Matrix, period int, vf float64, norm int) int {
 	ni := Normalization(mat, norm, t3)
 	SMA(mat, 18, ni)
 	return ni
+}
+
+/*
+keyvalue = input(3, title = "Key Vaule. 'This changes the sensitivity'", step = .5)
+atrperiod = input(10, title="ATR Period")
+xATR = atr(atrperiod)
+nLoss = keyvalue * xATR
+
+xATRTrailingStop = 0.0
+xATRTrailingStop := iff(src > nz(xATRTrailingStop[1], 0) and src[1] > nz(xATRTrailingStop[1], 0), max(nz(xATRTrailingStop[1]), src - nLoss),
+
+	iff(src < nz(xATRTrailingStop[1], 0) and src[1] < nz(xATRTrailingStop[1], 0), min(nz(xATRTrailingStop[1]), src + nLoss),
+	iff(src > nz(xATRTrailingStop[1], 0), src - nLoss, src + nLoss)))
+*/
+func ATRStopLoss(mat *Matrix, atr int, sensitivity float64) int {
+	ret := mat.AddColumn()
+	bs := mat.AddColumn()
+	ai := ATR(mat, atr)
+	nLoss := mat.Apply(func(mr MatrixRow) float64 {
+		return mr.Get(ai) * sensitivity
+	})
+	for i := 1; i < mat.Rows; i++ {
+		c := &mat.DataRows[i]
+		p := mat.DataRows[i-1]
+		src := c.Close()
+		if src > p.Get(ret) && p.Close() > p.Get(ret) {
+			c.Set(ret, ma.Max(p.Get(ret), src-c.Get(nLoss)))
+		} else {
+			if src < p.Get(ret) && p.Close() < p.Get(ret) {
+				c.Set(ret, ma.Min(p.Get(ret), src+c.Get(nLoss)))
+			} else {
+				if src > p.Get(ret) {
+					c.Set(ret, src-c.Get(nLoss))
+				} else {
+					c.Set(ret, src+c.Get(nLoss))
+				}
+			}
+		}
+	}
+	for i := 1; i < mat.Rows; i++ {
+		c := &mat.DataRows[i]
+		p := mat.DataRows[i-1]
+		if p.Close() < p.Get(ret) && c.Close() > c.Get(ret) {
+			c.Set(bs, 1.0)
+		}
+		if p.Close() > p.Get(ret) && c.Close() < c.Get(ret) {
+			c.Set(bs, -1.0)
+		}
+		/*
+				buy = crossover(src,xATRTrailingStop)
+			sell = crossunder(src,xATRTrailingStop)
+		*/
+	}
+	return ret
 }

@@ -83,12 +83,16 @@ func MergeGaps(gaps []FairValueGap) []FairValueGap {
 	return ret
 }
 
-func FindFairValueGaps3(candles *Matrix) []FairValueGap {
+func FindFairValueGaps3(candles *Matrix, bodyMultiplier float64) []FairValueGap {
 	var gaps = make([]FairValueGap, 0)
+	avgBody := candles.Apply(func(mr MatrixRow) float64 {
+		return m.Abs(mr.Close() - mr.Open())
+	})
 	for i := 2; i < candles.Rows; i++ {
 		c := candles.Row(i)
+		mid := candles.Row(i - 1)
 		p := candles.Row(i - 2)
-		if c.Get(HIGH) < p.Get(LOW) {
+		if c.Get(HIGH) < p.Get(LOW) && m.Abs(mid.Close()-mid.Open()) > c.Get(avgBody)*bodyMultiplier {
 			gaps = append(gaps, FairValueGap{
 				Timestamp: p.Key,
 				Filled:    0,
@@ -98,7 +102,7 @@ func FindFairValueGaps3(candles *Matrix) []FairValueGap {
 				Type:      -1,
 			})
 		}
-		if c.Get(LOW) > p.Get(HIGH) {
+		if c.Get(LOW) > p.Get(HIGH) && m.Abs(mid.Close()-mid.Open()) > c.Get(avgBody)*bodyMultiplier {
 			gaps = append(gaps, FairValueGap{
 				Timestamp: p.Key,
 				Filled:    0,
@@ -133,12 +137,16 @@ func FindFairValueGaps3(candles *Matrix) []FairValueGap {
 	return MergeGaps(gaps)
 }
 
-func FindFairValueGaps(candles *Matrix) []Gap {
+func FindFairValueGaps(candles *Matrix, bodyMultiplier float64) []Gap {
+	avgBody := candles.Apply(func(mr MatrixRow) float64 {
+		return m.Abs(mr.Close() - mr.Open())
+	})
 	var gaps = make([]Gap, 0)
 	for i := 2; i < candles.Rows; i++ {
 		c := candles.Row(i)
+		mid := candles.Row(i - 1)
 		p := candles.Row(i - 2)
-		if c.Get(HIGH) < p.Get(LOW) {
+		if c.Get(HIGH) < p.Get(LOW) && m.Abs(mid.Close()-mid.Open()) > c.Get(avgBody)*bodyMultiplier {
 			gaps = append(gaps, Gap{
 				Timestamp: c.Key,
 				Filled:    0,
@@ -147,7 +155,7 @@ func FindFairValueGaps(candles *Matrix) []Gap {
 				Index:     i - 2,
 			})
 		}
-		if c.Get(LOW) > p.Get(HIGH) {
+		if c.Get(LOW) > p.Get(HIGH) && m.Abs(mid.Close()-mid.Open()) > c.Get(avgBody)*bodyMultiplier {
 			gaps = append(gaps, Gap{
 				Timestamp: c.Key,
 				Filled:    0,
